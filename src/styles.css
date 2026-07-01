@@ -615,6 +615,12 @@ h2 {
   gap: 12px;
 }
 
+.landing-detail-stack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
 .rank-grid,
 .creative-groups {
   display: grid;
@@ -943,6 +949,35 @@ h3 {
 
 .table-wrap.compact {
   max-height: 430px;
+}
+
+#landingView .table-wrap {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#landingView table {
+  min-width: 0;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+#landingView th,
+#landingView td {
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+#landingView .name-cell,
+#landingView .sticky-col {
+  max-width: none;
+}
+
+#landingView .metric-stack strong,
+#landingView .metric-stack small,
+#landingView .tag,
+#landingView .cell-filter-button {
+  max-width: 100%;
 }
 
 table {
