@@ -1169,53 +1169,6 @@ function renderBars(id, rows, labelKey, metric = "spend", limit = 10, options = 
   }).join("") || `<p class="empty">当前筛选下暂无排行数据。</p>`;
 }
 
-function renderRankTable(id, rows, labelKey, metric = "spend", options = {}) {
-  const limit = options.limit || 80;
-  const top = [...rows]
-    .filter((row) => getMetric(row, metric) > 0)
-    .sort((a, b) => getMetric(b, metric) - getMetric(a, metric))
-    .slice(0, limit);
-  if (!top.length) {
-    document.getElementById(id).innerHTML = `<p class="empty">当前筛选下暂无排行数据。</p>`;
-    return;
-  }
-  const clickable = options.clickable !== false;
-  document.getElementById(id).innerHTML = `
-    <div class="rank-table-wrap">
-      <table class="rank-table">
-        <thead>
-          <tr>
-            <th>排名</th>
-            <th>${escapeHtml(options.label || "名称")}</th>
-            <th class="num">${escapeHtml(metricLabels[metric] || metric)}</th>
-            <th class="num">ROAS</th>
-            <th class="num">转化</th>
-            <th class="num">CPA</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${top.map((row, index) => {
-            const label = row[labelKey] || "Unknown";
-            const labelHtml = clickable
-              ? `<a class="link-filter" data-filter-key="${labelKey}" data-filter-value="${escapeHtml(label)}" href="${filterHref(labelKey, label)}">${escapeHtml(label)}</a>`
-              : `<span>${escapeHtml(label)}</span>`;
-            return `
-              <tr>
-                <td>${index + 1}</td>
-                <td class="name-cell">${labelHtml}</td>
-                <td class="num">${formatMetric(metric, getMetric(row, metric))}</td>
-                <td class="num">${ratio(row.roas)}</td>
-                <td class="num">${number(row.purchase_times)}</td>
-                <td class="num">${money(row.cpa)}</td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 function statusClass(row) {
   if (row.roas >= 2.2) return "good";
   if (row.roas < 1.2 && row.spend > 300) return "bad";
@@ -2024,9 +1977,9 @@ function render() {
   const daily = aggregate(fact, ["date_start"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start)));
   renderLineChart("trendChart", daily, state.trendMetric);
   renderTrendConclusion("trendConclusion", daily, state.trendMetric);
-  renderRankTable("countryBars", aggregate(fact, ["country"]), "country", "purchase_value", { label: "国家", limit: 80 });
-  renderRankTable("productBars", aggregate(fact, ["product_name"]), "product_name", "purchase_value", { label: "产品", limit: 80 });
-  renderRankTable("materialBars", aggregate(adRows, ["material_name"]), "material_name", "spend", { label: "素材编号", limit: 120, clickable: false });
+  renderBars("countryBars", aggregate(fact, ["country"]), "country", "purchase_value", 80);
+  renderBars("productBars", aggregate(fact, ["product_name"]), "product_name", "purchase_value", 80);
+  renderBars("materialBars", aggregate(adRows, ["material_name"]), "material_name", "spend", 120, { clickable: false });
   renderBars("overviewOperatorBars", aggregate(fact, ["operator"]), "operator", "spend", 8);
   renderAlerts(fact);
   renderTable("overviewProductTable", metaProductRows(fact, previousFact), [
