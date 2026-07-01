@@ -11,7 +11,7 @@ const state = {
   operator: [],
   materialType: [],
   videoSource: [],
-  compareMode: "previous",
+  compareMode: "lastMonth",
   compareStartDate: "",
   compareEndDate: "",
   trendMetric: "spend",
@@ -20,7 +20,7 @@ const state = {
 const pendingTime = {
   startDate: "",
   endDate: "",
-  compareMode: "previous",
+  compareMode: "lastMonth",
   compareStartDate: "",
   compareEndDate: "",
 };
@@ -226,6 +226,14 @@ function addDays(value, days) {
   return next.toISOString().slice(0, 10);
 }
 
+function addMonths(value, months) {
+  const [year, month, day] = value.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+
 function daysBetween(start, end) {
   return Math.round((dateToTime(end) - dateToTime(start)) / 86400000) + 1;
 }
@@ -238,6 +246,11 @@ function comparisonWindow() {
       end: state.compareEndDate,
       label: `${state.compareStartDate} 至 ${state.compareEndDate}`,
     };
+  }
+  if (state.compareMode === "lastMonth") {
+    const start = addMonths(state.startDate, -1);
+    const end = addMonths(state.endDate, -1);
+    return { start, end, label: `上月同期 ${start} 至 ${end}` };
   }
   const length = daysBetween(state.startDate, state.endDate);
   const prevEnd = addDays(state.startDate, -1);
@@ -496,6 +509,11 @@ function pendingComparisonWindow() {
       label: `${pendingTime.compareStartDate} 至 ${pendingTime.compareEndDate}`,
     };
   }
+  if (pendingTime.compareMode === "lastMonth") {
+    const start = addMonths(pendingTime.startDate, -1);
+    const end = addMonths(pendingTime.endDate, -1);
+    return { start, end, label: `上月同期 ${start} 至 ${end}` };
+  }
   const length = daysBetween(pendingTime.startDate, pendingTime.endDate);
   const prevEnd = addDays(pendingTime.startDate, -1);
   const prevStart = addDays(prevEnd, -(length - 1));
@@ -539,7 +557,7 @@ function initFilters() {
 
   const minDate = data.summary.min_date;
   const maxDate = data.summary.max_date;
-  if (!state.startDate) state.startDate = addDays(maxDate, -29) < minDate ? minDate : addDays(maxDate, -29);
+  if (!state.startDate) state.startDate = addDays(maxDate, -2) < minDate ? minDate : addDays(maxDate, -2);
   if (!state.endDate) state.endDate = maxDate;
 
   const start = document.getElementById("startDateFilter");
@@ -1151,6 +1169,53 @@ function renderBars(id, rows, labelKey, metric = "spend", limit = 10, options = 
   }).join("") || `<p class="empty">当前筛选下暂无排行数据。</p>`;
 }
 
+function renderRankTable(id, rows, labelKey, metric = "spend", options = {}) {
+  const limit = options.limit || 80;
+  const top = [...rows]
+    .filter((row) => getMetric(row, metric) > 0)
+    .sort((a, b) => getMetric(b, metric) - getMetric(a, metric))
+    .slice(0, limit);
+  if (!top.length) {
+    document.getElementById(id).innerHTML = `<p class="empty">当前筛选下暂无排行数据。</p>`;
+    return;
+  }
+  const clickable = options.clickable !== false;
+  document.getElementById(id).innerHTML = `
+    <div class="rank-table-wrap">
+      <table class="rank-table">
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th>${escapeHtml(options.label || "名称")}</th>
+            <th class="num">${escapeHtml(metricLabels[metric] || metric)}</th>
+            <th class="num">ROAS</th>
+            <th class="num">转化</th>
+            <th class="num">CPA</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${top.map((row, index) => {
+            const label = row[labelKey] || "Unknown";
+            const labelHtml = clickable
+              ? `<a class="link-filter" data-filter-key="${labelKey}" data-filter-value="${escapeHtml(label)}" href="${filterHref(labelKey, label)}">${escapeHtml(label)}</a>`
+              : `<span>${escapeHtml(label)}</span>`;
+            return `
+              <tr>
+                <td>${index + 1}</td>
+                <td class="name-cell">${labelHtml}</td>
+                <td class="num">${formatMetric(metric, getMetric(row, metric))}</td>
+                <td class="num">${ratio(row.roas)}</td>
+                <td class="num">${number(row.purchase_times)}</td>
+                <td class="num">${money(row.cpa)}</td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function statusClass(row) {
   if (row.roas >= 2.2) return "good";
   if (row.roas < 1.2 && row.spend > 300) return "bad";
@@ -1405,10 +1470,13 @@ function applyContentFilter(key, value) {
   render();
 }
 
-function bindContentFilters() {
-  document.querySelectorAll("[data-filter-key][data-filter-value]").forEach((el) => {
-    el.addEventListener("click", () => applyContentFilter(el.dataset.filterKey, el.dataset.filterValue));
-  });
+function bindContentFilters() {}
+
+function preserveScroll(callback) {
+  const x = window.scrollX;
+  const y = window.scrollY;
+  callback();
+  requestAnimationFrame(() => window.scrollTo(x, y));
 }
 
 function renderContextFilters() {
@@ -1956,9 +2024,9 @@ function render() {
   const daily = aggregate(fact, ["date_start"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start)));
   renderLineChart("trendChart", daily, state.trendMetric);
   renderTrendConclusion("trendConclusion", daily, state.trendMetric);
-  renderBars("countryBars", aggregate(fact, ["country"]), "country", "purchase_value", 8);
-  renderBars("productBars", aggregate(fact, ["product_name"]), "product_name", "purchase_value", 8);
-  renderBars("materialBars", aggregate(adRows, ["material_name"]), "material_name", "spend", 8, { clickable: false });
+  renderRankTable("countryBars", aggregate(fact, ["country"]), "country", "purchase_value", { label: "国家", limit: 80 });
+  renderRankTable("productBars", aggregate(fact, ["product_name"]), "product_name", "purchase_value", { label: "产品", limit: 80 });
+  renderRankTable("materialBars", aggregate(adRows, ["material_name"]), "material_name", "spend", { label: "素材编号", limit: 120, clickable: false });
   renderBars("overviewOperatorBars", aggregate(fact, ["operator"]), "operator", "spend", 8);
   renderAlerts(fact);
   renderTable("overviewProductTable", metaProductRows(fact, previousFact), [
@@ -2136,10 +2204,10 @@ function bindEvents() {
   window.addEventListener("resize", updateStickyOffsets);
   document.addEventListener("click", (event) => {
     const source = event.target.nodeType === 1 ? event.target : event.target.parentElement;
-    const target = source?.closest("button[data-filter-key][data-filter-value]");
+    const target = source?.closest("[data-filter-key][data-filter-value]");
     if (!target) return;
     event.preventDefault();
-    applyContentFilter(target.dataset.filterKey, target.dataset.filterValue);
+    preserveScroll(() => applyContentFilter(target.dataset.filterKey, target.dataset.filterValue));
   }, true);
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -2166,7 +2234,7 @@ function bindEvents() {
     const key = event.target.dataset.filter;
     state[key] = getSelectedValues(key);
     updateMultiButton(key);
-    render();
+    preserveScroll(render);
   });
   document.addEventListener("input", (event) => {
     if (!event.target.matches("[data-filter-search]")) return;
@@ -2188,7 +2256,7 @@ function bindEvents() {
       input.checked = false;
     });
     updateMultiButton(key);
-    render();
+    preserveScroll(render);
   });
   document.getElementById("startDateFilter").addEventListener("change", (event) => {
     pendingTime.startDate = event.target.value;
@@ -2239,11 +2307,11 @@ function bindEvents() {
     state.compareEndDate = pendingTime.compareMode === "custom" ? pendingTime.compareEndDate : "";
     syncPendingTimeFromState();
     initFilters();
-    render();
+    preserveScroll(render);
   });
   document.getElementById("trendMetric").addEventListener("change", (event) => {
     state.trendMetric = event.target.value;
-    render();
+    preserveScroll(render);
   });
   document.getElementById("resetFilters").addEventListener("click", () => {
     state.country = [];
@@ -2254,7 +2322,7 @@ function bindEvents() {
     state.materialType = [];
     state.videoSource = [];
     initFilters();
-    render();
+    preserveScroll(render);
   });
 }
 
@@ -2263,7 +2331,10 @@ function boot() {
   const params = new URLSearchParams(location.search);
   state.startDate = params.get("start") || "";
   state.endDate = params.get("end") || "";
-  state.compareMode = params.get("compareMode") === "custom" ? "custom" : "previous";
+  {
+    const compareMode = params.get("compareMode");
+    state.compareMode = ["previous", "lastMonth", "custom"].includes(compareMode) ? compareMode : "lastMonth";
+  }
   state.compareStartDate = params.get("compareStart") || "";
   state.compareEndDate = params.get("compareEnd") || "";
   state.country = params.getAll("country").filter((value) => value && value !== "全部");
