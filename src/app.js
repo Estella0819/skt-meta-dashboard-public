@@ -9,6 +9,7 @@ const state = {
   product: [],
   channel: [],
   operator: [],
+  landingType: [],
   materialType: [],
   videoSource: [],
   compareMode: "lastMonth",
@@ -168,6 +169,7 @@ function filterControlId(key) {
     operator: "operator",
     account_name: "account",
     channel: "channel",
+    landing_type: "landingType",
     material_type: "materialType",
     video_source: "videoSource",
   }[key];
@@ -189,6 +191,7 @@ function filterHref(key, value) {
   appendValues(params, "product", key === "product_name" ? [value] : state.product);
   appendValues(params, "channel", key === "channel" ? [value] : state.channel);
   appendValues(params, "operator", key === "operator" ? [value] : state.operator);
+  appendValues(params, "landingType", key === "landing_type" ? [value] : state.landingType);
   appendValues(params, "materialType", key === "material_type" ? [value] : state.materialType);
   appendValues(params, "videoSource", key === "video_source" ? [value] : state.videoSource);
   return `?${params.toString()}`;
@@ -300,6 +303,7 @@ function passesCommonFilters(row) {
   if (state.account.length && !state.account.includes(row.account_name)) return false;
   if (state.product.length && !state.product.includes(row.product_name)) return false;
   if (state.operator.length && !state.operator.includes(row.operator)) return false;
+  if (state.landingType.length && !state.landingType.includes(row.landing_type || landingPageType(row))) return false;
   if (state.materialType.length && !state.materialType.includes(row.material_type)) return false;
   if (state.videoSource.length && !state.videoSource.includes(row.video_source)) return false;
   return true;
@@ -545,6 +549,7 @@ function initFilters() {
   ])].sort((a, b) => a.localeCompare(b, "zh-CN"));
   const operators = [...new Set(data.fact.map((row) => row.operator || "Unknown"))].sort();
   const channels = [...new Set((data.us_channel_product_daily || []).map((row) => row.channel || "Unknown"))].sort();
+  const landingTypes = ["集合页", "活动专题页", "详情页"].filter((value) => data.fact.some((row) => landingPageType(row) === value));
   const materialTypes = ["图文", "视频", "合创"].filter((value) => data.fact.some((row) => row.material_type === value));
   const videoSources = ["自产素材", "TT搬运"].filter((value) => data.fact.some((row) => row.video_source === value));
   setMultiOptions("country", countries, state.country);
@@ -552,6 +557,7 @@ function initFilters() {
   setMultiOptions("product", products, state.product);
   setMultiOptions("channel", channels, state.channel);
   setMultiOptions("operator", operators, state.operator);
+  setMultiOptions("landingType", landingTypes, state.landingType);
   setMultiOptions("materialType", materialTypes, state.materialType);
   setMultiOptions("videoSource", videoSources, state.videoSource);
 
@@ -1260,9 +1266,18 @@ function tableInsight(id, rows, summaryRows = rows) {
       const top = topBy("spend");
       return `投手国家组合里，${label(top, ["operator", "country"])} 花费最高，为 ${money(top.spend)}。${bestRoas ? `高效组合为 ${label(bestRoas, ["operator", "country"])}，ROAS ${ratio(bestRoas.roas)}。` : ""}`;
     }
-    case "landingTable": {
+    case "landingTypeTable": {
       const top = topBy("spend");
-      return `落地页组合里，${label(top, ["landing_type", "product_name", "country"])} 花费最高，为 ${money(top.spend)}，ROAS ${ratio(top.roas)}。`;
+      const best = [...rows].filter((row) => getMetric(row, "spend") > 100).sort((a, b) => getMetric(b, "roas") - getMetric(a, "roas"))[0];
+      return `落地页类型里，${label(top, ["landing_type"])} 是主要消耗，花费占比 ${pct(top?.spend_share)}。${best ? `${label(best, ["landing_type"])} 效率最好，ROAS ${ratio(best.roas)}。` : ""}`;
+    }
+    case "landingProductTable": {
+      const top = topBy("spend");
+      return `落地页产品细分里，${label(top, ["landing_type", "product_name"])} 花费最高，为 ${money(top.spend)}，ROAS ${ratio(top.roas)}。`;
+    }
+    case "landingCountryTable": {
+      const top = topBy("spend");
+      return `落地页国家细分里，${label(top, ["landing_type", "country"])} 花费最高，为 ${money(top.spend)}，ROAS ${ratio(top.roas)}。`;
     }
     case "landingMaterialTable": {
       const top = topBy("purchase_value");
@@ -1319,6 +1334,28 @@ function addComparison(rows, previousRows, dims) {
       ctr_delta: deltaText(row.ctr, previous.ctr),
       cvr_delta: deltaText(row.cvr, previous.cvr),
       aov_delta: deltaText(row.aov, previous.aov),
+    };
+  });
+}
+
+function addShareDeltas(rows, previousRows, dims) {
+  const previousMap = new Map(previousRows.map((row) => [compareKey(row, dims), row]));
+  const totalSpend = rows.reduce((sum, row) => sum + getMetric(row, "spend"), 0);
+  const totalSales = rows.reduce((sum, row) => sum + getMetric(row, "purchase_value"), 0);
+  const previousTotalSpend = previousRows.reduce((sum, row) => sum + getMetric(row, "spend"), 0);
+  const previousTotalSales = previousRows.reduce((sum, row) => sum + getMetric(row, "purchase_value"), 0);
+  return rows.map((row) => {
+    const previous = previousMap.get(compareKey(row, dims)) || baseSummary();
+    const spendShare = totalSpend ? row.spend / totalSpend : 0;
+    const salesShare = totalSales ? row.purchase_value / totalSales : 0;
+    const previousSpendShare = previousTotalSpend ? previous.spend / previousTotalSpend : 0;
+    const previousSalesShare = previousTotalSales ? previous.purchase_value / previousTotalSales : 0;
+    return {
+      ...row,
+      spend_share: spendShare,
+      sales_share: salesShare,
+      spend_share_delta: deltaText(spendShare, previousSpendShare),
+      sales_share_delta: deltaText(salesShare, previousSalesShare),
     };
   });
 }
@@ -1413,6 +1450,7 @@ function applyContentFilter(key, value) {
     channel: "channel",
     operator: "operator",
     account_name: "account",
+    landing_type: "landingType",
     material_type: "materialType",
     video_source: "videoSource",
   };
@@ -2114,10 +2152,39 @@ function render() {
   const landingTypeRows = aggregate(landingRows, ["landing_type"]).sort((a, b) => b.spend - a.spend);
   renderDonutChart("landingTypeDonut", landingTypeRows, "spend", "落地页花费结构", { labelKey: "landing_type", limit: 8 });
   renderLandingInsights(landingRows);
-  const landingComboRows = addComparison(aggregate(landingRows, ["landing_type", "product_name", "country"]), previousLandingRows, ["landing_type", "product_name", "country"]).sort((a, b) => b.spend - a.spend);
-  renderTable("landingTable", landingComboRows, [
-    { key: "landing_type", label: "落地页类型", sticky: true, format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+  const previousLandingTypeRows = aggregate(previousLandingRows, ["landing_type"]);
+  const landingTypeComparisonRows = addShareDeltas(
+    addComparison(landingTypeRows, previousLandingRows, ["landing_type"]),
+    previousLandingTypeRows,
+    ["landing_type"],
+  ).sort((a, b) => b.spend - a.spend);
+  renderTable("landingTypeTable", landingTypeComparisonRows, [
+    { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+    { key: "spend", label: "花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
+    { key: "purchase_value", label: "销售额", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
+    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
+    { key: "cpa", label: "CPA", format: money, num: true },
+    { key: "ctr", label: "CTR", format: pct, num: true },
+    { key: "cvr", label: "CVR", format: pct, num: true },
+  ], 40, { previousSummaryRows: previousLandingTypeRows });
+  const landingProductRows = addComparison(aggregate(landingRows, ["landing_type", "product_name"]), previousLandingRows, ["landing_type", "product_name"]).sort((a, b) => b.spend - a.spend);
+  renderTable("landingProductTable", landingProductRows, [
+    { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+    { key: "spend", label: "花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "销售额", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
+    { key: "cpa", label: "CPA", format: money, num: true },
+    { key: "ctr", label: "CTR", format: pct, num: true },
+    { key: "cvr", label: "CVR", format: pct, num: true },
+  ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "product_name"]) });
+  const landingCountryRows = addComparison(aggregate(landingRows, ["landing_type", "country"]), previousLandingRows, ["landing_type", "country"]).sort((a, b) => b.spend - a.spend);
+  renderTable("landingCountryTable", landingCountryRows, [
+    { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "country", label: "国家", filterKey: "country" },
     { key: "spend", label: "花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_value", label: "销售额", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
@@ -2126,13 +2193,11 @@ function render() {
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "product_name", "country"]) });
-  const landingMaterialRows = addComparison(aggregate(landingRows, ["landing_type", "material_name", "material_type", "video_source"]), previousLandingRows, ["landing_type", "material_name", "material_type", "video_source"]).sort((a, b) => b.purchase_value - a.purchase_value);
+  ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "country"]) });
+  const landingMaterialRows = addComparison(aggregate(landingRows, ["landing_type", "material_name"]), previousLandingRows, ["landing_type", "material_name"]).sort((a, b) => b.purchase_value - a.purchase_value);
   renderTable("landingMaterialTable", landingMaterialRows, [
-    { key: "landing_type", label: "落地页类型", sticky: true, format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+    { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "material_name", label: "素材", name: true, format: (v) => `<span class="tag material-tag">${escapeHtml(v)}</span>` },
-    { key: "material_type", label: "类型", filterKey: "material_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "video_source", label: "视频来源", filterKey: "video_source", format: (v) => v ? `<span class="tag">${escapeHtml(v)}</span>` : "-" },
     { key: "spend", label: "花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_value", label: "销售额", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
@@ -2140,7 +2205,7 @@ function render() {
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "material_name", "material_type", "video_source"]) });
+  ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "material_name"]) });
   renderOnsite(fact, previousFact);
   renderChannels();
   bindContentFilters();
@@ -2272,6 +2337,7 @@ function bindEvents() {
     state.product = [];
     state.channel = [];
     state.operator = [];
+    state.landingType = [];
     state.materialType = [];
     state.videoSource = [];
     initFilters();
@@ -2295,6 +2361,7 @@ function boot() {
   state.product = params.getAll("product").filter((value) => value && value !== "全部");
   state.channel = params.getAll("channel").filter((value) => value && value !== "全部");
   state.operator = params.getAll("operator").filter((value) => value && value !== "全部");
+  state.landingType = params.getAll("landingType").filter((value) => value && value !== "全部");
   state.materialType = params.getAll("materialType").filter((value) => value && value !== "全部");
   state.videoSource = params.getAll("videoSource").filter((value) => value && value !== "全部");
   document.getElementById("dateRange").textContent = `${data.summary.min_date} 至 ${data.summary.max_date}`;

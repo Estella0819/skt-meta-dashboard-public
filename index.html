@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meta 投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260630-channel-page" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260701-landing-split" />
   </head>
   <body>
     <header class="topbar">
@@ -81,6 +81,11 @@
           <span class="filter-label">产品</span>
           <button type="button" class="multi-trigger" id="productFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="productFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="landingType" data-views="landing">
+          <span class="filter-label">落地页类型</span>
+          <button type="button" class="multi-trigger" id="landingTypeFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="landingTypeFilterPanel"></div>
         </div>
         <div class="multi-select" data-filter="channel" data-views="channels">
           <span class="filter-label">渠道</span>
@@ -297,13 +302,33 @@
         </section>
         <article class="panel">
           <header>
-            <h3>落地页 x 产品 x 国家</h3>
-            <span class="panel-note">按花费排序，辅助判断承接页和投放组合</span>
+            <h3>落地页类型整体对比</h3>
+            <span class="panel-note">先判断集合页、活动专题页、详情页的整体承接效率</span>
           </header>
-          <div class="table-wrap">
-            <table id="landingTable"></table>
+          <div class="table-wrap compact">
+            <table id="landingTypeTable"></table>
           </div>
         </article>
+        <section class="split-grid">
+          <article class="panel">
+            <header>
+              <h3>落地页 x 产品</h3>
+              <span class="panel-note">通过落地页类型 / 国家筛选继续下钻</span>
+            </header>
+            <div class="table-wrap">
+              <table id="landingProductTable"></table>
+            </div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>落地页 x 国家</h3>
+              <span class="panel-note">通过落地页类型 / 产品筛选继续下钻</span>
+            </header>
+            <div class="table-wrap">
+              <table id="landingCountryTable"></table>
+            </div>
+          </article>
+        </section>
         <article class="panel">
           <header>
             <h3>落地页 x 素材</h3>
@@ -408,7 +433,7 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260630-channel-page"></script>
-    <script src="./src/app.js?v=20260630-channel-page"></script>
+    <script src="./data/dashboard-data.js?v=20260701-landing-split"></script>
+    <script src="./src/app.js?v=20260701-landing-split"></script>
   </body>
 </html>
