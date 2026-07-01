@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meta 投放看板</title>
+    <link rel="stylesheet" href="./src/styles.css?v=20260630-channel-page" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-main">
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div>
+            <h1>Meta 投放看板</h1>
+            <p><span id="dateRange">加载中</span><span class="dot"></span><span id="generatedAt">BigQuery</span></p>
+          </div>
+        </div>
+        <nav class="tabs" aria-label="看板页面">
+          <button class="tab active" data-view="overview">总览</button>
+          <button class="tab" data-view="country">国家</button>
+          <button class="tab" data-view="creative">素材</button>
+          <button class="tab" data-view="operator">投手</button>
+          <button class="tab" data-view="landing">落地页</button>
+          <button class="tab" data-view="onsite">站内</button>
+          <button class="tab" data-view="channels">三渠道</button>
+        </nav>
+      </div>
+
+      <section class="filterbar" aria-label="筛选条件">
+        <label class="date-filter">
+          开始日期
+          <input id="startDateFilter" type="date" />
+        </label>
+        <label class="date-filter">
+          结束日期
+          <input id="endDateFilter" type="date" />
+        </label>
+        <label class="date-filter">
+          对比方式
+          <select id="compareModeFilter">
+            <option value="previous">上一周期</option>
+            <option value="custom">自定义对比</option>
+          </select>
+        </label>
+        <label class="date-filter compare-custom hidden">
+          对比开始
+          <input id="compareStartDateFilter" type="date" />
+        </label>
+        <label class="date-filter compare-custom hidden">
+          对比结束
+          <input id="compareEndDateFilter" type="date" />
+        </label>
+        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,country,creative,operator,landing,onsite">
+          <span class="filter-label">账户</span>
+          <button type="button" class="multi-trigger" id="accountFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="accountFilterPanel"></div>
+        </div>
+        <button id="applyTimeFilter" class="apply-time-button" type="button">应用时间</button>
+        <p id="periodHint" class="period-hint"></p>
+      </section>
+    </header>
+
+    <main class="app">
+      <section class="page-heading">
+        <div>
+          <h2 id="viewTitle">总览</h2>
+          <p id="viewSubtitle">投放规模、效率和趋势</p>
+        </div>
+        <div id="periodBadge" class="period-badge"></div>
+      </section>
+
+      <section class="context-filterbar" aria-label="当前页面筛选">
+        <div class="multi-select" data-filter="country" data-views="country,landing,onsite">
+          <span class="filter-label">国家</span>
+          <button type="button" class="multi-trigger" id="countryFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="countryFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="product" data-views="country,creative,landing,onsite,channels">
+          <span class="filter-label">产品</span>
+          <button type="button" class="multi-trigger" id="productFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="productFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="channel" data-views="channels">
+          <span class="filter-label">渠道</span>
+          <button type="button" class="multi-trigger" id="channelFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="channelFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="operator" data-views="operator">
+          <span class="filter-label">投手</span>
+          <button type="button" class="multi-trigger" id="operatorFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="operatorFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="materialType" data-views="creative">
+          <span class="filter-label">素材类型</span>
+          <button type="button" class="multi-trigger" id="materialTypeFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="materialTypeFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="videoSource" data-views="creative">
+          <span class="filter-label">视频来源</span>
+          <button type="button" class="multi-trigger" id="videoSourceFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="videoSourceFilterPanel"></div>
+        </div>
+        <span id="activeFilterNote" class="active-filter-note hidden"></span>
+        <button id="resetFilters" class="ghost-button">重置筛选</button>
+      </section>
+
+      <section id="insightSummary" class="insight-summary"></section>
+      <section id="kpis" class="kpi-grid"></section>
+      <section id="comparison" class="comparison-strip"></section>
+      <section id="actionInsights" class="action-insights"></section>
+
+      <section class="view-shell" id="overviewView">
+        <section class="overview-layout">
+          <article class="panel trend-panel">
+            <header>
+              <h3>核心趋势</h3>
+              <select id="trendMetric" class="compact-select">
+                <option value="spend">花费</option>
+                <option value="purchase_value">销售额</option>
+                <option value="purchase_times">转化数</option>
+                <option value="roas">ROAS</option>
+              </select>
+            </header>
+            <div class="trend-body">
+              <div id="trendChart" class="chart"></div>
+              <aside id="trendConclusion" class="chart-conclusion"></aside>
+            </div>
+          </article>
+          <article class="panel overview-alert-panel">
+            <header><h3>异常提醒</h3></header>
+            <div id="alertsList" class="alerts"></div>
+          </article>
+        </section>
+        <section class="rank-grid">
+          <article class="panel">
+            <header>
+              <h3>国家排行</h3>
+              <span class="panel-note">筛选产品后展示该产品各国家表现</span>
+            </header>
+            <div id="countryBars" class="bars"></div>
+          </article>
+          <article class="panel">
+            <header><h3>产品排行</h3></header>
+            <div id="productBars" class="bars"></div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>素材排行</h3>
+              <span class="panel-note">跟随产品筛选，按花费排序</span>
+            </header>
+            <div id="materialBars" class="bars"></div>
+          </article>
+          <article class="panel">
+            <header><h3>投手排行</h3></header>
+            <div id="overviewOperatorBars" class="bars"></div>
+          </article>
+        </section>
+        <article class="panel">
+          <header>
+            <h3>产品投放分析</h3>
+            <span class="panel-note">仅 Meta 投放端数据，按广告销售额排序</span>
+          </header>
+          <div class="table-wrap">
+            <table id="overviewProductTable"></table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-shell hidden" id="countryView">
+        <article class="panel country-trend-panel">
+          <header>
+            <h3>国家趋势</h3>
+            <span class="panel-note">快捷筛选国家 / 产品，图表跟随当前筛选</span>
+          </header>
+          <div id="countryTrendQuickFilters" class="quick-filter-row"></div>
+          <div class="trend-body">
+            <div id="countryTrend" class="chart small"></div>
+            <aside id="countryTrendConclusion" class="chart-conclusion"></aside>
+          </div>
+        </article>
+        <article class="panel">
+          <header><h3>国家表现矩阵</h3></header>
+          <div class="table-wrap compact">
+            <table id="countryTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>国家 x 产品</h3>
+            <span class="panel-note">二维组合，按销售额排序；素材表现请看素材页</span>
+          </header>
+          <div class="table-wrap">
+            <table id="countryProductTable"></table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-shell hidden" id="creativeView">
+        <article class="panel">
+          <header>
+            <h3>素材类型对比</h3>
+            <span class="panel-note">视频含汇总，并拆分自产素材 / TT搬运</span>
+          </header>
+          <div class="viz-grid compact-viz">
+            <div id="materialSpendDonut" class="donut-card"></div>
+            <div id="materialSalesDonut" class="donut-card"></div>
+          </div>
+          <div class="table-wrap compact">
+            <table id="materialComparisonTable"></table>
+          </div>
+        </article>
+        <section class="creative-groups">
+          <article class="panel">
+            <header><h3>高花费素材</h3></header>
+            <div id="highSpendCreatives" class="creative-list"></div>
+          </article>
+          <article class="panel">
+            <header><h3>高 ROAS 素材</h3></header>
+            <div id="highRoasCreatives" class="creative-list"></div>
+          </article>
+          <article class="panel">
+            <header><h3>风险素材</h3></header>
+            <div id="riskCreatives" class="creative-list"></div>
+          </article>
+        </section>
+        <article class="panel">
+          <header>
+            <h3>产品 x 素材表现</h3>
+            <span class="panel-note">看每个产品对应哪些素材类型和素材编号跑得好</span>
+          </header>
+          <div class="table-wrap">
+            <table id="creativeProductTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header><h3>素材明细</h3></header>
+          <div class="table-wrap">
+            <table id="creativeTable"></table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-shell hidden" id="operatorView">
+        <section class="operator-layout">
+          <article class="panel">
+            <header>
+              <h3>投手总览</h3>
+              <span class="panel-note">按花费占比展示</span>
+            </header>
+            <div id="operatorShareDonut" class="donut-card single-donut"></div>
+          </article>
+          <article class="panel">
+            <header><h3>投手组合提醒</h3></header>
+            <div id="operatorAlerts" class="alerts"></div>
+          </article>
+        </section>
+        <section class="split-grid">
+          <article class="panel">
+            <header>
+              <h3>投手 x 产品</h3>
+              <span class="panel-note">按花费排序，判断产品侧分工和效率</span>
+            </header>
+            <div class="table-wrap">
+              <table id="operatorProductTable"></table>
+            </div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>投手 x 国家</h3>
+              <span class="panel-note">按花费排序，判断国家侧分工和效率</span>
+            </header>
+            <div class="table-wrap">
+              <table id="operatorCountryTable"></table>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section class="view-shell hidden" id="landingView">
+        <section class="split-grid">
+          <article class="panel">
+            <header>
+              <h3>落地页类型对比</h3>
+              <span class="panel-note">从 campaign / adset name 提取</span>
+            </header>
+            <div id="landingTypeDonut" class="donut-card single-donut"></div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>落地页判断</h3>
+              <span class="panel-note">看集合页、活动专题页等承接效率</span>
+            </header>
+            <div id="landingInsights" class="alerts"></div>
+          </article>
+        </section>
+        <article class="panel">
+          <header>
+            <h3>落地页 x 产品 x 国家</h3>
+            <span class="panel-note">按花费排序，辅助判断承接页和投放组合</span>
+          </header>
+          <div class="table-wrap">
+            <table id="landingTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>落地页 x 素材</h3>
+            <span class="panel-note">看不同落地页类型下哪些素材更有效</span>
+          </header>
+          <div class="table-wrap">
+            <table id="landingMaterialTable"></table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-shell hidden" id="onsiteView">
+        <section class="onsite-top">
+          <article class="panel trend-panel onsite-trend-panel">
+            <header>
+              <h3>Meta GMV vs Shopify 净销售趋势</h3>
+              <span class="panel-note">Shopify ROI 口径使用 net sales</span>
+            </header>
+            <div class="trend-body onsite-trend-body">
+              <div id="onsiteTrend" class="chart onsite-chart"></div>
+              <aside id="onsiteTrendConclusion" class="chart-conclusion onsite-conclusion"></aside>
+            </div>
+          </article>
+        </section>
+        <section id="onsiteSummary" class="onsite-summary"></section>
+        <article class="panel">
+          <header>
+            <h3>国家承接：净销售占比 vs 花费占比</h3>
+            <span class="panel-note">看 Shopify net sales 占比是否跑赢 Meta 花费占比</span>
+          </header>
+          <div class="table-wrap compact">
+            <table id="onsiteCountryTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>产品承接总表</h3>
+            <span class="panel-note">Shopify net sales 占比 vs Meta 花费占比，按净销售额排序</span>
+          </header>
+          <div class="table-wrap">
+            <table id="onsiteProductComparisonTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>国家 x 产品：占比匹配与效率</h3>
+            <span class="panel-note">产品为映射后归类，原始 Shopify 商品名见下方对账表</span>
+          </header>
+          <div class="table-wrap">
+            <table id="onsiteProductTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>Shopify 原始商品销售对账</h3>
+            <span class="panel-note">按原始 product_title 展示，帮助核对产品归类和国家销售额</span>
+          </header>
+          <div class="table-wrap">
+            <table id="onsiteRawProductTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>Shopify 未匹配商品</h3>
+            <span class="panel-note">用于后续补充人工产品映射</span>
+          </header>
+          <div class="table-wrap compact">
+            <table id="onsiteUnmatchedTable"></table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-shell hidden" id="channelsView">
+        <article class="panel trend-panel onsite-trend-panel">
+          <header>
+            <h3>美国三渠道每日销售趋势</h3>
+            <span class="panel-note">统一美元口径；TikTok 人民币 GMV 按 6.96 汇率换算</span>
+          </header>
+          <div class="trend-body onsite-trend-body">
+            <div id="usChannelTrend" class="chart onsite-chart"></div>
+            <aside id="usChannelTrendConclusion" class="chart-conclusion onsite-conclusion"></aside>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>渠道汇总</h3>
+            <span class="panel-note">筛选渠道后，趋势和产品表只看对应渠道</span>
+          </header>
+          <div class="table-wrap compact">
+            <table id="usChannelSummaryTable"></table>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>渠道 x 产品销量表现</h3>
+            <span class="panel-note">按销量排序，保留销售额和件单价辅助判断</span>
+          </header>
+          <div class="table-wrap">
+            <table id="usChannelProductTable"></table>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="./data/dashboard-data.js?v=20260630-channel-page"></script>
+    <script src="./src/app.js?v=20260630-channel-page"></script>
+  </body>
+</html>
