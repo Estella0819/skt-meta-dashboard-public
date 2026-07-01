@@ -12,6 +12,8 @@ const state = {
   landingType: [],
   materialType: [],
   videoSource: [],
+  materialName: [],
+  adName: [],
   compareMode: "lastMonth",
   compareStartDate: "",
   compareEndDate: "",
@@ -172,6 +174,8 @@ function filterControlId(key) {
     landing_type: "landingType",
     material_type: "materialType",
     video_source: "videoSource",
+    material_name: "materialName",
+    ad_name: "adName",
   }[key];
 }
 
@@ -194,6 +198,8 @@ function filterHref(key, value) {
   appendValues(params, "landingType", key === "landing_type" ? [value] : state.landingType);
   appendValues(params, "materialType", key === "material_type" ? [value] : state.materialType);
   appendValues(params, "videoSource", key === "video_source" ? [value] : state.videoSource);
+  appendValues(params, "materialName", key === "material_name" ? [value] : state.materialName);
+  appendValues(params, "adName", key === "ad_name" ? [value] : state.adName);
   return `?${params.toString()}`;
 }
 
@@ -306,6 +312,8 @@ function passesCommonFilters(row) {
   if (state.landingType.length && !state.landingType.includes(row.landing_type || landingPageType(row))) return false;
   if (state.materialType.length && !state.materialType.includes(row.material_type)) return false;
   if (state.videoSource.length && !state.videoSource.includes(row.video_source)) return false;
+  if (state.materialName.length && (row.material_code || row.material_name || row.ad_name) && !state.materialName.includes(row.material_name || materialName(row))) return false;
+  if (state.adName.length && row.ad_name && !state.adName.includes(row.ad_name)) return false;
   return true;
 }
 
@@ -487,6 +495,7 @@ function getSelectedValues(key) {
 function updateMultiButton(key) {
   const button = document.getElementById(`${key}FilterButton`);
   const values = state[key];
+  if (!button) return;
   if (!values.length) {
     button.textContent = "全部";
     button.classList.remove("has-selection");
@@ -502,6 +511,23 @@ function syncPendingTimeFromState() {
   pendingTime.compareMode = state.compareMode;
   pendingTime.compareStartDate = state.compareStartDate;
   pendingTime.compareEndDate = state.compareEndDate;
+}
+
+function tableFilterKey(col) {
+  if (col.filterKey === false) return "";
+  if (col.filterKey) return col.filterKey;
+  return {
+    country: "country",
+    product_name: "product_name",
+    account_name: "account_name",
+    operator: "operator",
+    channel: "channel",
+    landing_type: "landing_type",
+    material_type: "material_type",
+    video_source: "video_source",
+    material_name: "material_name",
+    ad_name: "ad_name",
+  }[col.key] || "";
 }
 
 function pendingComparisonWindow() {
@@ -1190,9 +1216,10 @@ function renderTable(id, rows, columns, limit = 80, options = {}) {
         const raw = col.value ? col.value(row) : row[col.key];
         const val = col.format ? (col.format.length > 1 ? col.format(raw, row) : col.format(raw)) : escapeHtml(raw);
         const dataLabel = escapeHtml(col.label);
-        const filterAttrs = col.filterKey && raw ? ` data-filter-key="${col.filterKey}" data-filter-value="${escapeHtml(raw)}"` : "";
-        const content = col.filterKey && raw ? `<a class="cell-filter-button"${filterAttrs} href="${filterHref(col.filterKey, raw)}">${val}</a>` : val;
-        return `<td data-label="${dataLabel}" class="${col.num ? "num" : ""} ${col.name ? "name-cell" : ""} ${col.sticky ? "sticky-col" : ""} ${col.filterKey ? "click-cell" : ""}">${content}</td>`;
+        const filterKey = tableFilterKey(col);
+        const filterAttrs = filterKey && raw ? ` data-filter-key="${filterKey}" data-filter-value="${escapeHtml(raw)}"` : "";
+        const content = filterKey && raw ? `<a class="cell-filter-button"${filterAttrs} href="${filterHref(filterKey, raw)}">${val}</a>` : val;
+        return `<td data-label="${dataLabel}" class="${col.num ? "num" : ""} ${col.name ? "name-cell" : ""} ${col.sticky ? "sticky-col" : ""} ${filterKey ? "click-cell" : ""}">${content}</td>`;
       }).join("")}
     </tr>
   `).join("");
@@ -1453,6 +1480,8 @@ function applyContentFilter(key, value) {
     landing_type: "landingType",
     material_type: "materialType",
     video_source: "videoSource",
+    material_name: "materialName",
+    ad_name: "adName",
   };
   const stateKey = mapping[key];
   if (!stateKey || !value) return;
@@ -1481,6 +1510,12 @@ function renderContextFilters() {
     if (isVisible) visibleCount += 1;
     el.classList.toggle("hidden", !isVisible);
     if (!isVisible) el.classList.remove("open");
+  });
+  [
+    ["materialName", "素材"],
+    ["adName", "Ad name"],
+  ].forEach(([key, labelText]) => {
+    if (state[key]?.length) hiddenActive.push(labelText);
   });
   const note = document.getElementById("activeFilterNote");
   note.textContent = hiddenActive.length ? `当前还有隐藏筛选：${hiddenActive.join("、")}` : "";
@@ -2340,6 +2375,8 @@ function bindEvents() {
     state.landingType = [];
     state.materialType = [];
     state.videoSource = [];
+    state.materialName = [];
+    state.adName = [];
     initFilters();
     preserveScroll(render);
   });
@@ -2364,6 +2401,8 @@ function boot() {
   state.landingType = params.getAll("landingType").filter((value) => value && value !== "全部");
   state.materialType = params.getAll("materialType").filter((value) => value && value !== "全部");
   state.videoSource = params.getAll("videoSource").filter((value) => value && value !== "全部");
+  state.materialName = params.getAll("materialName").filter((value) => value && value !== "全部");
+  state.adName = params.getAll("adName").filter((value) => value && value !== "全部");
   document.getElementById("dateRange").textContent = `${data.summary.min_date} 至 ${data.summary.max_date}`;
   document.getElementById("generatedAt").textContent = `更新于 ${data.generated_at}`;
   initFilters();
