@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meta 投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260702-material-refresh" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260702-creative-counts" />
   </head>
   <body>
     <header class="topbar">
@@ -142,12 +142,15 @@
           <article class="panel">
             <header>
               <h3>国家排行</h3>
-              <span class="panel-note">筛选产品后展示该产品各国家表现</span>
+              <span class="panel-note">按 Meta GMV 排名；筛选产品后展示该产品各国家表现</span>
             </header>
             <div id="countryBars" class="bars"></div>
           </article>
           <article class="panel">
-            <header><h3>产品排行</h3></header>
+            <header>
+              <h3>产品排行</h3>
+              <span class="panel-note">按 Meta GMV 排名，不是按花费</span>
+            </header>
             <div id="productBars" class="bars"></div>
           </article>
           <article class="panel">
@@ -158,7 +161,10 @@
             <div id="materialBars" class="bars"></div>
           </article>
           <article class="panel">
-            <header><h3>投手排行</h3></header>
+            <header>
+              <h3>投手排行</h3>
+              <span class="panel-note">按 Meta 花费排名</span>
+            </header>
             <div id="overviewOperatorBars" class="bars"></div>
           </article>
         </section>
@@ -206,7 +212,7 @@
         <article class="panel">
           <header>
             <h3>素材类型对比</h3>
-            <span class="panel-note">视频含汇总，并拆分自产素材 / TT搬运</span>
+            <span class="panel-note">Meta 数据；视频含汇总，并拆分自产素材 / TT搬运；素材数按唯一素材名/编号</span>
           </header>
           <div class="viz-grid compact-viz">
             <div id="materialSpendDonut" class="donut-card"></div>
@@ -233,14 +239,17 @@
         <article class="panel">
           <header>
             <h3>产品 x 素材表现</h3>
-            <span class="panel-note">看每个产品对应哪些素材类型和素材编号跑得好</span>
+            <span class="panel-note">Meta 数据；看每个产品对应哪些素材类型和素材编号跑得好</span>
           </header>
           <div class="table-wrap">
             <table id="creativeProductTable"></table>
           </div>
         </article>
         <article class="panel">
-          <header><h3>素材明细</h3></header>
+          <header>
+            <h3>素材明细</h3>
+            <span class="panel-note">Meta Top 500 素材明细，按花费排序</span>
+          </header>
           <div class="table-wrap">
             <table id="creativeTable"></table>
           </div>
@@ -405,7 +414,7 @@
         <article class="panel trend-panel onsite-trend-panel">
           <header>
             <h3>美国三渠道每日销售趋势</h3>
-            <span class="panel-note">统一美元口径；TikTok 人民币 GMV 按 6.96 汇率换算</span>
+            <span class="panel-note">Shopify/Amazon 保留美元；TikTok 保留原始数据源 GMV，不再按 6.96 换算</span>
           </header>
           <div class="trend-body onsite-trend-body">
             <div id="usChannelTrend" class="chart onsite-chart"></div>
@@ -415,7 +424,7 @@
         <article class="panel">
           <header>
             <h3>渠道汇总</h3>
-            <span class="panel-note">筛选渠道后，趋势和产品表只看对应渠道</span>
+            <span class="panel-note">按各渠道原始销售额口径；筛选渠道后，趋势和产品表只看对应渠道</span>
           </header>
           <div class="table-wrap compact">
             <table id="usChannelSummaryTable"></table>
@@ -424,7 +433,7 @@
         <article class="panel">
           <header>
             <h3>渠道 x 产品销量表现</h3>
-            <span class="panel-note">按销量排序，保留销售额和件单价辅助判断</span>
+            <span class="panel-note">按销量排序；销售额保留各渠道原始口径</span>
           </header>
           <div class="table-wrap">
             <table id="usChannelProductTable"></table>
@@ -433,7 +442,7 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260702-material-refresh"></script>
-    <script src="./src/app.js?v=20260702-material-refresh"></script>
+    <script src="./data/dashboard-data.js?v=20260702-creative-counts"></script>
+    <script src="./src/app.js?v=20260702-creative-counts"></script>
   </body>
 </html>
