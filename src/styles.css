@@ -154,6 +154,14 @@ h1 {
   line-height: 1.35;
 }
 
+.period-hint.has-pending {
+  padding: 8px 10px;
+  border: 1px solid rgba(11, 111, 106, 0.22);
+  border-radius: 8px;
+  background: #eefbf8;
+  color: #31524f;
+}
+
 .pending-period {
   color: var(--accent);
   font-weight: 800;
@@ -200,7 +208,9 @@ input[type="date"] {
 }
 
 .apply-time-button.has-pending {
-  box-shadow: 0 0 0 3px rgba(11, 111, 106, 0.14);
+  border-color: #0f766e;
+  background: #0f766e;
+  box-shadow: 0 0 0 3px rgba(11, 111, 106, 0.18);
 }
 
 .apply-time-button:hover {

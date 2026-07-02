@@ -561,7 +561,9 @@ function hasPendingTimeChanges() {
 function updateApplyTimeButton() {
   const button = document.getElementById("applyTimeFilter");
   if (!button) return;
-  button.classList.toggle("has-pending", hasPendingTimeChanges());
+  const hasPending = hasPendingTimeChanges();
+  button.classList.toggle("has-pending", hasPending);
+  button.textContent = hasPending ? "应用并刷新" : "应用时间";
   renderPeriodHint();
 }
 
@@ -767,12 +769,15 @@ function renderActionInsights(fact, previousFact) {
 function renderPeriodHint() {
   const period = comparisonWindow();
   const pendingPeriod = pendingComparisonWindow();
-  const pendingText = hasPendingTimeChanges()
-    ? `<span class="pending-period">待应用：${escapeHtml(pendingTime.startDate)} 至 ${escapeHtml(pendingTime.endDate)} / 对比 ${escapeHtml(pendingPeriod.label)}</span>`
+  const hint = document.getElementById("periodHint");
+  const hasPending = hasPendingTimeChanges();
+  const pendingText = hasPending
+    ? `<span class="pending-period">待应用输入框：${escapeHtml(pendingTime.startDate)} 至 ${escapeHtml(pendingTime.endDate)} / 对比 ${escapeHtml(pendingPeriod.label)}，点击“应用并刷新”后生效</span>`
     : "";
-  document.getElementById("periodHint").innerHTML = `
-    <span>已应用：${escapeHtml(state.startDate)} 至 ${escapeHtml(state.endDate)}</span>
-    <span>对比：${escapeHtml(period.label)}</span>
+  hint.classList.toggle("has-pending", hasPending);
+  hint.innerHTML = `
+    <span>当前生效：${escapeHtml(state.startDate)} 至 ${escapeHtml(state.endDate)}</span>
+    <span>当前对比：${escapeHtml(period.label)}</span>
     ${pendingText}
   `;
 }
