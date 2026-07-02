@@ -104,14 +104,8 @@ function money(value) {
   return `$${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-function cny(value) {
-  if (value === null || value === undefined || value === "") return "-";
-  return `¥${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-}
-
 function channelMoney(value, rowOrChannel = "") {
-  const channel = typeof rowOrChannel === "string" ? rowOrChannel : rowOrChannel?.channel;
-  return channel === "TikTok Shop" ? cny(value) : money(value);
+  return money(value);
 }
 
 function number(value, digits = 0) {
@@ -966,7 +960,7 @@ function renderKpis(rows, previousRows) {
       { label: "渠道数", value: new Set(channelRows.map((row) => row.channel)).size, previous: new Set(previousChannelRows.map((row) => row.channel)).size, format: number, hint: "当前筛选覆盖" },
       { label: "Shopify销售额", value: getMetric(shopify, "channel_sales"), previous: getMetric(previousShopify, "channel_sales"), format: money, hint: "USD Net Sales" },
       { label: "Amazon销售额", value: getMetric(amazon, "channel_sales"), previous: getMetric(previousAmazon, "channel_sales"), format: money, hint: "USD 原始GMV" },
-      { label: "TikTok销售额", value: getMetric(tiktok, "channel_sales"), previous: getMetric(previousTiktok, "channel_sales"), format: cny, hint: "人民币原始GMV" },
+      { label: "TikTok销售额", value: getMetric(tiktok, "channel_sales"), previous: getMetric(previousTiktok, "channel_sales"), format: money, hint: "USD 原始GMV" },
       { label: "三渠道销量", value: channelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), previous: previousChannelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), format: number, hint: "Units 汇总" },
       { label: "最高销量产品", value: topProductChannel?.product_name || "-", note: topProductChannel ? `${number(topProductChannel.channel_units)} 件` : "当前周期", format: String, hint: topProductChannel?.channel || "" },
     ]);
@@ -1245,7 +1239,7 @@ function renderChannelLineChart(id, rows) {
     <div class="dual-legend">
       ${channels.map((channel) => `<span><i class="legend-dot" style="background:${colors[channel]}"></i>${escapeHtml(channel)}</span>`).join("")}
     </div>
-    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="美国三渠道每日销售趋势，TikTok保留人民币原始口径">
+    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="美国三渠道每日销售趋势，三渠道均按美元展示">
       <g class="axis">${grid}${ticks}</g>
       ${lines}
       ${hoverPoints}
@@ -1270,8 +1264,8 @@ function renderUsChannelConclusion(rows) {
   const total = channelRows.reduce((sum, row) => sum + getMetric(row, "channel_sales"), 0);
   el.innerHTML = `
     <strong>三渠道结论</strong>
-    <p>${escapeHtml(top.channel)} 当前原始销售额最高，为 ${channelMoney(top.channel_sales, top)}；注意 TikTok 保留原始数据源 GMV。</p>
-    <p>最后有数据日期：${escapeHtml(latestByChannel)}。Shopify/Amazon 为美元，TikTok 不再按 6.96 换算。</p>
+    <p>${escapeHtml(top.channel)} 当前销售额最高，为 ${channelMoney(top.channel_sales, top)}；三渠道均按美元展示。</p>
+    <p>最后有数据日期：${escapeHtml(latestByChannel)}。TikTok 使用源表原始美元 GMV，不做汇率换算。</p>
   `;
 }
 
