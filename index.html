@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meta 投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260702-creative-counts" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260702-visual-pass" />
   </head>
   <body>
     <header class="topbar">
@@ -303,12 +303,19 @@
           </article>
           <article class="panel">
             <header>
-              <h3>落地页判断</h3>
-              <span class="panel-note">看集合页、活动专题页等承接效率</span>
+              <h3>落地页效率对比</h3>
+              <span class="panel-note">花费占比 vs GMV占比，判断承接是否跑赢投放</span>
             </header>
-            <div id="landingInsights" class="alerts"></div>
+            <div id="landingTypeBars" class="compare-bars"></div>
           </article>
         </section>
+        <article class="panel compact-analysis-panel">
+          <header>
+            <h3>落地页判断</h3>
+            <span class="panel-note">自动提炼主要承接、高效承接和风险承接</span>
+          </header>
+          <div id="landingInsights" class="alerts inline-alerts"></div>
+        </article>
         <article class="panel">
           <header>
             <h3>落地页类型整体对比</h3>
@@ -423,6 +430,13 @@
         </article>
         <article class="panel">
           <header>
+            <h3>三渠道产品结构对比</h3>
+            <span class="panel-note">按销量展示产品在 Shopify / Amazon / TikTok 的渠道结构</span>
+          </header>
+          <div id="usChannelProductMix" class="stacked-bars"></div>
+        </article>
+        <article class="panel">
+          <header>
             <h3>渠道汇总</h3>
             <span class="panel-note">按各渠道原始销售额口径；筛选渠道后，趋势和产品表只看对应渠道</span>
           </header>
@@ -442,7 +456,7 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260702-creative-counts"></script>
-    <script src="./src/app.js?v=20260702-creative-counts"></script>
+    <script src="./data/dashboard-data.js?v=20260702-visual-pass"></script>
+    <script src="./src/app.js?v=20260702-visual-pass"></script>
   </body>
 </html>

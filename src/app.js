@@ -1360,6 +1360,7 @@ function renderBars(id, rows, labelKey, metric = "spend", limit = 10, options = 
   document.getElementById(id).innerHTML = top.map((row) => {
     const label = row[labelKey] || "Unknown";
     const value = getMetric(row, metric);
+    const [efficiencyText, efficiencyTone] = efficiencyLabel(row);
     const labelHtml = options.clickable === false
       ? `<span>${escapeHtml(label)}</span>`
       : `<a class="link-filter" data-filter-key="${labelKey}" data-filter-value="${escapeHtml(label)}" href="${filterHref(labelKey, label)}">${escapeHtml(label)}</a>`;
@@ -1370,16 +1371,130 @@ function renderBars(id, rows, labelKey, metric = "spend", limit = 10, options = 
           <strong>${formatMetric(metric, value)}</strong>
         </div>
         <div class="bar-track"><div class="bar-fill" style="width:${Math.max((value / max) * 100, 2)}%"></div></div>
-        <div class="bar-sub">ROAS ${ratio(row.roas)} / CPA ${money(row.cpa)} / 转化 ${number(row.purchase_times)}</div>
+        <div class="bar-sub">
+          <span class="efficiency-chip ${efficiencyTone}">${escapeHtml(efficiencyText)}</span>
+          ROAS ${ratio(row.roas)} / CPA ${money(row.cpa)} / 转化 ${number(row.purchase_times)}
+        </div>
       </div>
     `;
   }).join("") || `<p class="empty">当前筛选下暂无排行数据。</p>`;
+}
+
+function renderLandingTypeBars(id, rows) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const source = rows
+    .filter((row) => getMetric(row, "spend") > 0 || getMetric(row, "purchase_value") > 0)
+    .sort((a, b) => getMetric(b, "spend") - getMetric(a, "spend"));
+  if (!source.length) {
+    el.innerHTML = `<p class="empty">当前筛选下没有落地页类型数据。</p>`;
+    return;
+  }
+  el.innerHTML = source.map((row) => {
+    const spendShare = getMetric(row, "spend_share");
+    const salesShare = getMetric(row, "sales_share");
+    const gap = salesShare - spendShare;
+    const gapCls = Math.abs(gap) < 0.01 ? "flat" : (gap > 0 ? "up" : "down");
+    const [efficiencyText, efficiencyTone] = efficiencyLabel(row);
+    return `
+      <article class="compare-bar-row">
+        <div class="compare-bar-head">
+          <strong>${escapeHtml(row.landing_type || "Unknown")}</strong>
+          <span class="efficiency-chip ${efficiencyTone}">${escapeHtml(efficiencyText)}</span>
+        </div>
+        <div class="compare-line">
+          <span>花费</span>
+          <div class="compare-track"><i class="spend-bar" style="width:${Math.max(spendShare * 100, 1)}%"></i></div>
+          <b>${pct(spendShare)}</b>
+        </div>
+        <div class="compare-line">
+          <span>GMV</span>
+          <div class="compare-track"><i class="sales-bar" style="width:${Math.max(salesShare * 100, 1)}%"></i></div>
+          <b>${pct(salesShare)}</b>
+        </div>
+        <p>ROAS ${ratio(row.roas)}，占比差 <span class="${gapCls}">${gap > 0 ? "+" : ""}${pct(gap)}</span></p>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderChannelProductMix(id, rows) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const productRows = [...rows]
+    .filter((row) => getMetric(row, "channel_units") > 0)
+    .sort((a, b) => getMetric(b, "channel_units") - getMetric(a, "channel_units"))
+    .slice(0, 10);
+  if (!productRows.length) {
+    el.innerHTML = `<p class="empty">当前筛选下没有渠道产品销量数据。</p>`;
+    return;
+  }
+  const channelOrder = ["Shopify US", "Amazon US", "TikTok Shop"];
+  const colors = {
+    "Shopify US": "#047857",
+    "Amazon US": "#a16207",
+    "TikTok Shop": "#2563eb",
+  };
+  const byProduct = new Map();
+  for (const row of rows) {
+    const product = row.product_name || "Unknown";
+    if (!byProduct.has(product)) {
+      byProduct.set(product, { product_name: product, total_units: 0, total_sales: 0, channels: new Map() });
+    }
+    const item = byProduct.get(product);
+    const channel = row.channel || "Unknown";
+    const units = getMetric(row, "channel_units");
+    const sales = getMetric(row, "channel_sales");
+    item.total_units += units;
+    item.total_sales += sales;
+    const channelItem = item.channels.get(channel) || { units: 0, sales: 0 };
+    channelItem.units += units;
+    channelItem.sales += sales;
+    item.channels.set(channel, channelItem);
+  }
+  const top = [...byProduct.values()].sort((a, b) => b.total_units - a.total_units).slice(0, 10);
+  el.innerHTML = `
+    <div class="stacked-legend">
+      ${channelOrder.map((channel) => `<span><i style="background:${colors[channel]}"></i>${escapeHtml(channel)}</span>`).join("")}
+    </div>
+    ${top.map((row) => {
+      const segments = channelOrder.map((channel) => {
+        const item = row.channels.get(channel) || { units: 0, sales: 0 };
+        const share = row.total_units ? item.units / row.total_units : 0;
+        if (!share) return "";
+        return `<i style="width:${share * 100}%;background:${colors[channel]}" title="${escapeHtml(`${channel}: ${number(item.units)} 件 / ${money(item.sales)}`)}"></i>`;
+      }).join("");
+      const topChannel = channelOrder
+        .map((channel) => ({ channel, ...(row.channels.get(channel) || { units: 0, sales: 0 }) }))
+        .sort((a, b) => b.units - a.units)[0];
+      return `
+        <article class="stacked-bar-row">
+          <div class="stacked-bar-head">
+            <strong>${escapeHtml(row.product_name)}</strong>
+            <span>${number(row.total_units)} 件 / ${money(row.total_sales)}</span>
+          </div>
+          <div class="stacked-track">${segments}</div>
+          <p>主力渠道 ${escapeHtml(topChannel.channel)}，销量占比 ${pct(row.total_units ? topChannel.units / row.total_units : 0)}</p>
+        </article>
+      `;
+    }).join("")}
+  `;
 }
 
 function statusClass(row) {
   if (row.roas >= 2.2) return "good";
   if (row.roas < 1.2 && row.spend > 300) return "bad";
   return "warn";
+}
+
+function efficiencyLabel(row) {
+  const roas = getMetric(row, "roas");
+  const spend = getMetric(row, "spend");
+  const sales = getMetric(row, "purchase_value");
+  if (spend > 250 && roas < 1.3) return ["低效复盘", "bad"];
+  if (sales > 0 && roas >= 2.2) return ["高效", "good"];
+  if (spend > 0 && sales === 0) return ["无转化", "bad"];
+  return ["观察", "warn"];
 }
 
 function renderTable(id, rows, columns, limit = 80, options = {}) {
@@ -2041,6 +2156,7 @@ function renderChannels() {
     channelAggregate(currentRows, ["channel", "product_name"]),
     previousProductRows
   ).sort((a, b) => b.channel_units - a.channel_units || b.channel_sales - a.channel_sales);
+  renderChannelProductMix("usChannelProductMix", channelProductRows);
   renderTable("usChannelProductTable", channelProductRows, [
     { key: "channel", label: "渠道", sticky: true, filterKey: "channel" },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
@@ -2390,6 +2506,7 @@ function render() {
     previousLandingTypeRows,
     ["landing_type"],
   ).sort((a, b) => b.spend - a.spend);
+  renderLandingTypeBars("landingTypeBars", landingTypeComparisonRows);
   renderTable("landingTypeTable", landingTypeComparisonRows, [
     { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
@@ -2582,6 +2699,10 @@ function bindEvents() {
 function boot() {
   if (!data) return;
   const params = new URLSearchParams(location.search);
+  {
+    const view = params.get("view");
+    state.view = view && titles[view] ? view : state.view;
+  }
   state.startDate = params.get("start") || "";
   state.endDate = params.get("end") || "";
   {
