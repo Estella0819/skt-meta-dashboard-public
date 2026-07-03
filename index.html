@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meta 投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260703-data-refresh" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260703-region" />
   </head>
   <body>
     <header class="topbar">
@@ -189,6 +189,15 @@
           <div class="trend-body">
             <div id="countryTrend" class="chart small"></div>
             <aside id="countryTrendConclusion" class="chart-conclusion"></aside>
+          </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>地区投放效果</h3>
+            <span class="panel-note">中东=SA/AE；美国=US；澳英加=其余国家；unknown 单独归为未识别地区</span>
+          </header>
+          <div class="table-wrap compact">
+            <table id="regionTable"></table>
           </div>
         </article>
         <article class="panel">
@@ -456,7 +465,7 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260703-data-refresh"></script>
-    <script src="./src/app.js?v=20260703-data-refresh"></script>
+    <script src="./data/dashboard-data.js?v=20260703-region"></script>
+    <script src="./src/app.js?v=20260703-region"></script>
   </body>
 </html>

@@ -218,7 +218,7 @@ function filterHref(key, value) {
   params.set("compareMode", state.compareMode);
   if (state.compareStartDate) params.set("compareStart", state.compareStartDate);
   if (state.compareEndDate) params.set("compareEnd", state.compareEndDate);
-  appendValues(params, "country", key === "country" ? [value] : state.country);
+  appendValues(params, "country", key === "region" ? countriesForRegion(value) : (key === "country" ? [value] : state.country));
   appendValues(params, "account", key === "account_name" ? [value] : state.account);
   appendValues(params, "product", key === "product_name" ? [value] : state.product);
   appendValues(params, "channel", key === "channel" ? [value] : state.channel);
@@ -233,6 +233,21 @@ function filterHref(key, value) {
 
 function getMetric(row, key) {
   return Number(row?.[key] || 0);
+}
+
+function countryRegion(country) {
+  const value = String(country || "").trim().toUpperCase();
+  if (!value || value === "UNKNOWN") return "未识别地区";
+  if (value === "SA" || value === "AE") return "中东";
+  if (value === "US") return "美国";
+  return "澳英加";
+}
+
+function countriesForRegion(region, rows = data.fact || []) {
+  return [...new Set(rows
+    .map((row) => row.country || "Unknown")
+    .filter((country) => countryRegion(country) === region))]
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function inferShopifyProductName(title) {
@@ -320,6 +335,35 @@ function aggregate(rows, dims = []) {
     item.purchase_value += getMetric(row, "purchase_value");
   }
   return [...map.values()].map(deriveMetrics);
+}
+
+function aggregateRegions(rows) {
+  const withRegion = rows.map((row) => ({ ...row, region: countryRegion(row.country) }));
+  const countrySets = new Map();
+  for (const row of withRegion) {
+    const region = row.region || "未识别地区";
+    if (!countrySets.has(region)) countrySets.set(region, new Set());
+    countrySets.get(region).add(row.country || "Unknown");
+  }
+  return aggregate(withRegion, ["region"]).map((row) => ({
+    ...row,
+    country_count: countrySets.get(row.region)?.size || 0,
+  }));
+}
+
+function regionPerformanceRows(rows, previousRows) {
+  const current = aggregateRegions(rows);
+  const previous = aggregateRegions(previousRows);
+  const previousMap = new Map(previous.map((row) => [row.region, row]));
+  return addShareDeltas(addComparison(current, previous, ["region"]), previous, ["region"])
+    .map((row) => {
+      const previousRow = previousMap.get(row.region) || {};
+      return {
+        ...row,
+        country_count_delta: deltaText(row.country_count, previousRow.country_count || 0),
+      };
+    })
+    .sort((a, b) => b.purchase_value - a.purchase_value);
 }
 
 function deriveMetrics(row) {
@@ -596,6 +640,7 @@ function tableFilterKey(col) {
     account_name: "account_name",
     operator: "operator",
     channel: "channel",
+    region: "region",
     landing_type: "landing_type",
     material_type: "material_type",
     video_source: "video_source",
@@ -1564,6 +1609,11 @@ function tableInsight(id, rows, summaryRows = rows) {
   const summary = tableSummary(summaryRows);
   const label = (row, keys) => keys.map((key) => row?.[key]).filter(Boolean).join(" / ") || "-";
   switch (id) {
+    case "regionTable": {
+      const top = topBy("purchase_value");
+      const gap = [...rows].sort((a, b) => Math.abs(getMetric(b, "sales_share") - getMetric(b, "spend_share")) - Math.abs(getMetric(a, "sales_share") - getMetric(a, "spend_share")))[0];
+      return `${label(top, ["region"])} 是当前最大贡献地区，GMV ${money(top.purchase_value)}、ROAS ${ratio(top.roas)}。${gap ? `${label(gap, ["region"])} 的 GMV占比与花费占比差异最大，建议继续下钻国家和产品。` : ""}`;
+    }
     case "overviewProductTable": {
       const top = topBy("purchase_value");
       return `重点看 ${label(top, ["product_name"])}，贡献 ${money(top.purchase_value)} GMV、ROAS ${ratio(top.roas)}。${bestRoas ? `当前高效产品是 ${label(bestRoas, ["product_name"])}，ROAS ${ratio(bestRoas.roas)}。` : ""}`;
@@ -1782,6 +1832,12 @@ function renderSummaryCell(col, summary, index, previousSummary = null) {
 }
 
 function applyContentFilter(key, value) {
+  if (key === "region") {
+    state.country = countriesForRegion(value);
+    updateMultiButton("country");
+    render();
+    return;
+  }
   const mapping = {
     country: "country",
     product_name: "product",
@@ -2387,6 +2443,21 @@ function render() {
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
   ], 80, { previousSummaryRows: aggregate(previousFact, ["product_name"]) });
+
+  const regions = regionPerformanceRows(fact, previousFact);
+  renderTable("regionTable", regions, [
+    { key: "region", label: "地区", sticky: true, filterKey: "region", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+    { key: "country_count", label: "国家数", value: (row) => row, format: (row) => metricWithDelta(row, "country_count", number, "country_count_delta"), summaryValue: (row) => row.country_count, summaryFormat: number, num: true },
+    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, num: true },
+    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share, summaryFormat: pct, num: true },
+    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
+    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
+    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
+    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
+  ], 10, { previousSummaryRows: aggregateRegions(previousFact) });
 
   const countries = addComparison(aggregate(fact, ["country"]), previousFact, ["country"]).sort((a, b) => b.purchase_value - a.purchase_value);
   renderTable("countryTable", countries, [
