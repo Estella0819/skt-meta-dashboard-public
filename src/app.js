@@ -1,4 +1,24 @@
-const data = window.META_DASHBOARD_DATA;
+function unpackRows(rows, schema) {
+  if (!Array.isArray(rows) || !Array.isArray(schema) || !Array.isArray(rows[0])) return rows || [];
+  return rows.map((values) => {
+    const row = {};
+    schema.forEach((key, index) => {
+      row[key] = values[index];
+    });
+    return row;
+  });
+}
+
+function normalizeDashboardData(source) {
+  const next = source || {};
+  const schemas = next._schemas || {};
+  Object.keys(schemas).forEach((key) => {
+    next[key] = unpackRows(next[key], schemas[key]);
+  });
+  return next;
+}
+
+const data = normalizeDashboardData(window.META_DASHBOARD_DATA);
 
 const state = {
   view: "overview",
