@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meta 投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260706-product-page" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260706-visual-optimization" />
   </head>
   <body>
     <header class="topbar">
@@ -179,15 +179,6 @@
             <div id="overviewOperatorBars" class="bars"></div>
           </article>
         </section>
-        <article class="panel">
-          <header>
-            <h3>产品投放分析</h3>
-            <span class="panel-note">仅 Meta 投放端数据，按广告销售额排序</span>
-          </header>
-          <div class="table-wrap">
-            <table id="overviewProductTable"></table>
-          </div>
-        </article>
       </section>
 
       <section class="view-shell hidden" id="productView">
@@ -228,6 +219,22 @@
             <div class="table-wrap compact">
               <table id="productFormTable"></table>
             </div>
+          </article>
+        </section>
+        <section class="split-grid">
+          <article class="panel">
+            <header>
+              <h3>产品线占比匹配</h3>
+              <span class="panel-note">Meta GMV占比 vs 花费占比，判断产品线是否跑赢投放</span>
+            </header>
+            <div id="productLineShareBars" class="compare-bars"></div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>产品线 x 国家热力</h3>
+              <span class="panel-note">颜色按 ROAS，数值显示 Meta GMV</span>
+            </header>
+            <div id="productCountryHeatmap" class="heatmap"></div>
           </article>
         </section>
         <section class="split-grid">
@@ -278,9 +285,17 @@
             <h3>地区投放效果</h3>
             <span class="panel-note">中东=SA/AE；美国=US；澳英加=其余国家；unknown 单独归为未识别地区</span>
           </header>
+          <div id="regionShareBars" class="compare-bars"></div>
           <div class="table-wrap compact">
             <table id="regionTable"></table>
           </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>国家 x 产品热力</h3>
+            <span class="panel-note">颜色按 ROAS，数值显示 Meta GMV；点击国家或产品继续筛选</span>
+          </header>
+          <div id="countryProductHeatmap" class="heatmap"></div>
         </article>
         <article class="panel">
           <header><h3>国家表现矩阵</h3></header>
@@ -309,9 +324,17 @@
             <div id="materialSpendDonut" class="donut-card"></div>
             <div id="materialSalesDonut" class="donut-card"></div>
           </div>
+          <div id="materialShareBars" class="compare-bars"></div>
           <div class="table-wrap compact">
             <table id="materialComparisonTable"></table>
           </div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>产品 x 素材类型热力</h3>
+            <span class="panel-note">颜色按 ROAS，数值显示 Meta GMV；判断哪个产品适合哪类素材</span>
+          </header>
+          <div id="creativeProductHeatmap" class="heatmap"></div>
         </article>
         <section class="creative-groups">
           <article class="panel">
@@ -355,6 +378,13 @@
               <span class="panel-note">按花费占比展示</span>
             </header>
             <div id="operatorShareDonut" class="donut-card single-donut"></div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>投手效率象限</h3>
+              <span class="panel-note">横轴花费，纵轴 ROAS，气泡大小代表 Meta GMV</span>
+            </header>
+            <div id="operatorQuadrant" class="quadrant-chart"></div>
           </article>
           <article class="panel">
             <header><h3>投手组合提醒</h3></header>
@@ -406,6 +436,13 @@
             <span class="panel-note">自动提炼主要承接、高效承接和风险承接</span>
           </header>
           <div id="landingInsights" class="alerts inline-alerts"></div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>落地页类型趋势</h3>
+            <span class="panel-note">按日期观察集合页、详情页、活动页的 Meta GMV 变化</span>
+          </header>
+          <div id="landingTypeTrend" class="chart small"></div>
         </article>
         <article class="panel">
           <header>
@@ -466,6 +503,7 @@
             <h3>国家承接：净销售占比 vs 花费占比</h3>
             <span class="panel-note">看 Shopify net sales 占比是否跑赢 Meta 花费占比</span>
           </header>
+          <div id="onsiteCountryShareBars" class="compare-bars"></div>
           <div class="table-wrap compact">
             <table id="onsiteCountryTable"></table>
           </div>
@@ -475,6 +513,7 @@
             <h3>产品承接总表</h3>
             <span class="panel-note">Shopify net sales 占比 vs Meta 花费占比，按净销售额排序</span>
           </header>
+          <div id="onsiteProductShareBars" class="compare-bars"></div>
           <div class="table-wrap">
             <table id="onsiteProductComparisonTable"></table>
           </div>
@@ -528,6 +567,13 @@
         </article>
         <article class="panel">
           <header>
+            <h3>渠道产品销量排行</h3>
+            <span class="panel-note">跟随渠道筛选，按销量展示产品表现</span>
+          </header>
+          <div id="usChannelProductBars" class="bars"></div>
+        </article>
+        <article class="panel">
+          <header>
             <h3>渠道汇总</h3>
             <span class="panel-note">按各渠道原始销售额口径；筛选渠道后，趋势和产品表只看对应渠道</span>
           </header>
@@ -547,7 +593,7 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260706-product-page"></script>
-    <script src="./src/app.js?v=20260706-product-page"></script>
+    <script src="./data/dashboard-data.js?v=20260706-visual-optimization"></script>
+    <script src="./src/app.js?v=20260706-visual-optimization"></script>
   </body>
 </html>

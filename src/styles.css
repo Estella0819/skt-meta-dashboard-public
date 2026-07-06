@@ -640,7 +640,7 @@ h2 {
 
 .operator-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 12px;
 }
 
@@ -855,6 +855,125 @@ h3 {
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
+}
+
+.compact-compare-row {
+  padding: 10px 13px;
+}
+
+.heatmap {
+  padding: 13px;
+  overflow: hidden;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: minmax(70px, 0.95fr) repeat(var(--heatmap-cols), minmax(0, 1fr));
+  gap: 5px;
+  align-items: stretch;
+}
+
+.heatmap-row {
+  display: contents;
+}
+
+.heatmap-head,
+.heatmap-side,
+.heatmap-cell {
+  min-width: 0;
+  border-radius: 7px;
+  text-decoration: none;
+}
+
+.heatmap-head,
+.heatmap-side {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 7px;
+  color: #334155;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.heatmap-head {
+  justify-content: center;
+  text-align: center;
+}
+
+.heatmap-cell {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  padding: 5px;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.04);
+}
+
+.heatmap-cell b {
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.heatmap-cell small {
+  font-size: 10px;
+  line-height: 1.1;
+  opacity: 0.82;
+}
+
+.heatmap-head:hover,
+.heatmap-side:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.quadrant-chart {
+  height: 360px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.quadrant-chart svg {
+  width: 100%;
+  height: 100%;
+}
+
+.quadrant-point {
+  fill: rgba(11, 111, 106, 0.24);
+  stroke: var(--accent);
+  stroke-width: 2;
+  transition: fill 0.15s ease, stroke-width 0.15s ease;
+}
+
+.quadrant-point-link {
+  color: #344054;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.quadrant-point-link:hover .quadrant-point {
+  fill: rgba(37, 99, 235, 0.24);
+  stroke-width: 3;
+}
+
+.quadrant-point-link text,
+.axis-label,
+.quadrant-label {
+  fill: #475467;
+  font-size: 12px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.quadrant-label {
+  fill: var(--muted);
+  font-size: 11px;
 }
 
 .alerts,

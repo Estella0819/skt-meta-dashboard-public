@@ -1539,8 +1539,10 @@ function renderBars(id, rows, labelKey, metric = "spend", limit = 10, options = 
         </div>
         <div class="bar-track"><div class="bar-fill" style="width:${Math.max((value / max) * 100, 2)}%"></div></div>
         <div class="bar-sub">
-          <span class="efficiency-chip ${efficiencyTone}">${escapeHtml(efficiencyText)}</span>
-          ROAS ${ratio(row.roas)} / CPA ${money(row.cpa)} / 转化 ${number(row.purchase_times)}
+          ${options.subText
+            ? options.subText(row)
+            : `<span class="efficiency-chip ${efficiencyTone}">${escapeHtml(efficiencyText)}</span>
+              ROAS ${ratio(row.roas)} / CPA ${money(row.cpa)} / 转化 ${number(row.purchase_times)}`}
         </div>
       </div>
     `;
@@ -1583,6 +1585,198 @@ function renderLandingTypeBars(id, rows) {
       </article>
     `;
   }).join("");
+}
+
+function renderShareCompareBars(id, rows, labelKey, options = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const valueKey = options.valueKey || "purchase_value";
+  const spendShareKey = options.spendShareKey || "spend_share";
+  const salesShareKey = options.salesShareKey || "sales_share";
+  const spendLabel = options.spendLabel || "花费";
+  const salesLabel = options.salesLabel || "GMV";
+  const valueFormat = options.valueFormat || ((value) => formatMetric(valueKey, value));
+  const limit = options.limit || 6;
+  const source = [...rows]
+    .filter((row) => getMetric(row, spendShareKey) > 0 || getMetric(row, salesShareKey) > 0 || getMetric(row, valueKey) > 0)
+    .sort((a, b) => getMetric(b, valueKey) - getMetric(a, valueKey))
+    .slice(0, limit);
+  if (!source.length) {
+    el.innerHTML = `<p class="empty">当前筛选下没有占比数据。</p>`;
+    return;
+  }
+  el.innerHTML = source.map((row) => {
+    const label = row[labelKey] || "Unknown";
+    const spendShare = getMetric(row, spendShareKey);
+    const salesShare = getMetric(row, salesShareKey);
+    const gap = salesShare - spendShare;
+    const gapCls = Math.abs(gap) < 0.01 ? "flat" : (gap > 0 ? "up" : "down");
+    const filterKey = tableFilterKey({ key: labelKey });
+    const labelHtml = filterKey
+      ? `<a class="link-filter" data-filter-key="${filterKey}" data-filter-value="${escapeHtml(label)}" href="${filterHref(filterKey, label)}">${escapeHtml(label)}</a>`
+      : `<strong>${escapeHtml(label)}</strong>`;
+    return `
+      <article class="compare-bar-row compact-compare-row">
+        <div class="compare-bar-head">
+          ${labelHtml}
+          <span class="${gapCls}">占比差 ${gap > 0 ? "+" : ""}${pct(gap)}</span>
+        </div>
+        <div class="compare-line">
+          <span>${escapeHtml(spendLabel)}</span>
+          <div class="compare-track"><i class="spend-bar" style="width:${Math.max(spendShare * 100, spendShare ? 1 : 0)}%"></i></div>
+          <b>${pct(spendShare)}</b>
+        </div>
+        <div class="compare-line">
+          <span>${escapeHtml(salesLabel)}</span>
+          <div class="compare-track"><i class="sales-bar" style="width:${Math.max(salesShare * 100, salesShare ? 1 : 0)}%"></i></div>
+          <b>${pct(salesShare)}</b>
+        </div>
+        <p>ROAS ${ratio(row.roas || row.meta_roas || row.onsite_roas)}，${escapeHtml(salesLabel)} ${valueFormat(getMetric(row, valueKey))}</p>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderHeatmap(id, rows, xKey, yKey, options = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const valueKey = options.valueKey || "purchase_value";
+  const colorKey = options.colorKey || "roas";
+  const xLimit = options.xLimit || 5;
+  const yLimit = options.yLimit || 6;
+  const source = rows.filter((row) => getMetric(row, valueKey) > 0 || getMetric(row, "spend") > 0);
+  if (!source.length) {
+    el.innerHTML = `<p class="empty">当前筛选下没有热力数据。</p>`;
+    return;
+  }
+  const totals = (key) => {
+    const map = new Map();
+    for (const row of source) {
+      const label = row[key] || "Unknown";
+      map.set(label, (map.get(label) || 0) + getMetric(row, valueKey));
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
+  };
+  const xLabels = totals(xKey).slice(0, xLimit);
+  const yLabels = totals(yKey).slice(0, yLimit);
+  const byKey = new Map(source.map((row) => [`${row[xKey] || "Unknown"}||${row[yKey] || "Unknown"}`, row]));
+  const maxColor = Math.max(...source.map((row) => getMetric(row, colorKey)), 1);
+  const xFilterKey = tableFilterKey({ key: xKey });
+  const yFilterKey = tableFilterKey({ key: yKey });
+  const xHeads = xLabels.map((label) => xFilterKey
+    ? `<a class="heatmap-head" data-filter-key="${xFilterKey}" data-filter-value="${escapeHtml(label)}" href="${filterHref(xFilterKey, label)}">${escapeHtml(label)}</a>`
+    : `<span class="heatmap-head">${escapeHtml(label)}</span>`).join("");
+  const rowsHtml = yLabels.map((yLabel) => {
+    const yHead = yFilterKey
+      ? `<a class="heatmap-side" data-filter-key="${yFilterKey}" data-filter-value="${escapeHtml(yLabel)}" href="${filterHref(yFilterKey, yLabel)}">${escapeHtml(yLabel)}</a>`
+      : `<span class="heatmap-side">${escapeHtml(yLabel)}</span>`;
+    const cells = xLabels.map((xLabel) => {
+      const row = byKey.get(`${xLabel}||${yLabel}`) || {};
+      const colorValue = getMetric(row, colorKey);
+      const value = getMetric(row, valueKey);
+      const alpha = value ? Math.max(0.16, Math.min(colorValue / maxColor, 1) * 0.82) : 0;
+      const background = value ? `rgba(11, 111, 106, ${alpha.toFixed(2)})` : "#f3f5f7";
+      const textColor = alpha > 0.48 ? "#ffffff" : "#1f2937";
+      return `<span class="heatmap-cell" style="background:${background};color:${textColor}" title="${escapeHtml(`${xLabel} / ${yLabel}: ${formatMetric(valueKey, value)} · ROAS ${ratio(colorValue)}`)}"><b>${value ? formatMetric(valueKey, value) : "-"}</b><small>${value ? `R ${ratio(colorValue)}` : ""}</small></span>`;
+    }).join("");
+    return `<div class="heatmap-row">${yHead}${cells}</div>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="heatmap-grid" style="--heatmap-cols:${xLabels.length}">
+      <span></span>${xHeads}
+      ${rowsHtml}
+    </div>
+  `;
+}
+
+function renderQuadrantChart(id, rows, labelKey, options = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const source = [...rows].filter((row) => getMetric(row, "spend") > 0).sort((a, b) => b.spend - a.spend).slice(0, options.limit || 12);
+  if (!source.length) {
+    el.innerHTML = `<p class="empty">当前筛选下没有象限数据。</p>`;
+    return;
+  }
+  const width = 620;
+  const height = 360;
+  const pad = { top: 28, right: 24, bottom: 48, left: 58 };
+  const maxSpend = Math.max(...source.map((row) => getMetric(row, "spend")), 1);
+  const maxRoas = Math.max(...source.map((row) => getMetric(row, "roas")), 2.5);
+  const maxSales = Math.max(...source.map((row) => getMetric(row, "purchase_value")), 1);
+  const avgSpend = source.reduce((sum, row) => sum + getMetric(row, "spend"), 0) / source.length;
+  const avgRoas = source.reduce((sum, row) => sum + getMetric(row, "roas"), 0) / source.length;
+  const x = (value) => pad.left + (value / maxSpend) * (width - pad.left - pad.right);
+  const y = (value) => height - pad.bottom - (value / maxRoas) * (height - pad.top - pad.bottom);
+  const labelFilterKey = tableFilterKey({ key: labelKey });
+  const points = source.map((row) => {
+    const label = row[labelKey] || "Unknown";
+    const radius = 6 + Math.sqrt(getMetric(row, "purchase_value") / maxSales) * 16;
+    const href = filterHref(labelFilterKey, label);
+    const attrs = labelFilterKey ? `data-filter-key="${labelFilterKey}" data-filter-value="${escapeHtml(label)}" href="${href}"` : "";
+    return `
+      <a class="quadrant-point-link" ${attrs}>
+        <circle class="quadrant-point" cx="${x(getMetric(row, "spend"))}" cy="${y(getMetric(row, "roas"))}" r="${radius}">
+          <title>${escapeHtml(`${label}: 花费 ${money(row.spend)} · ROAS ${ratio(row.roas)} · GMV ${money(row.purchase_value)}`)}</title>
+        </circle>
+        <text x="${x(getMetric(row, "spend")) + radius + 4}" y="${y(getMetric(row, "roas")) + 4}">${escapeHtml(label)}</text>
+      </a>
+    `;
+  }).join("");
+  el.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="投手效率象限图">
+      <line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${y(avgRoas)}" y2="${y(avgRoas)}"></line>
+      <line class="grid-line" x1="${x(avgSpend)}" x2="${x(avgSpend)}" y1="${pad.top}" y2="${height - pad.bottom}"></line>
+      <text class="axis-label" x="${pad.left}" y="${pad.top - 8}">ROAS</text>
+      <text class="axis-label" x="${width - 95}" y="${height - 14}">Meta花费</text>
+      <text class="quadrant-label" x="${x(avgSpend) + 8}" y="${y(avgRoas) - 10}">高效放量</text>
+      <text class="quadrant-label" x="${pad.left + 8}" y="${y(avgRoas) + 20}">低消观察</text>
+      ${points}
+    </svg>
+  `;
+}
+
+function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">当前筛选下没有趋势数据。</p>`;
+    return;
+  }
+  const categories = [...new Set(rows.map((row) => row[categoryKey] || "Unknown"))].slice(0, options.limit || 4);
+  const dates = [...new Set(rows.map((row) => row.date_start))].sort();
+  const width = Math.max(900, dates.length * 30);
+  const height = 330;
+  const pad = { top: 20, right: 28, bottom: 62, left: 64 };
+  const byKey = new Map(rows.map((row) => [`${row.date_start}||${row[categoryKey] || "Unknown"}`, row]));
+  const max = Math.max(...rows.map((row) => getMetric(row, metric)), 1);
+  const x = (index) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(dates.length - 1, 1);
+  const y = (value) => height - pad.bottom - (value * (height - pad.top - pad.bottom)) / max;
+  const palette = ["#0b6f6a", "#2563eb", "#a16207", "#b45309"];
+  const tickStep = dates.length <= 31 ? 2 : Math.ceil(dates.length / 14);
+  const ticks = dates.filter((_, index) => index === 0 || index === dates.length - 1 || index % tickStep === 0).map((date) => {
+    const index = dates.indexOf(date);
+    return `<text class="x-tick" x="${x(index)}" y="${height - 20}" text-anchor="end" transform="rotate(-35 ${x(index)} ${height - 20})">${date.slice(5)}</text>`;
+  }).join("");
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((step) => {
+    const yy = pad.top + step * (height - pad.top - pad.bottom);
+    return `<line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${yy}" y2="${yy}" />`;
+  }).join("");
+  const lines = categories.map((category, lineIndex) => {
+    const points = dates.map((date, index) => {
+      const row = byKey.get(`${date}||${category}`) || {};
+      return `${x(index)},${y(getMetric(row, metric))}`;
+    }).join(" ");
+    return `<polyline class="line" style="stroke:${palette[lineIndex % palette.length]}" points="${points}"></polyline>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="dual-legend">
+      ${categories.map((category, index) => `<span><i class="legend-dot" style="background:${palette[index % palette.length]}"></i>${escapeHtml(category)}</span>`).join("")}
+    </div>
+    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="${metricLabels[metric]}分类型趋势">
+      <g class="axis">${grid}${ticks}</g>
+      ${lines}
+    </svg>
+  `;
 }
 
 function renderChannelProductMix(id, rows) {
@@ -2335,6 +2529,7 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
   const formRows = productAnalysisRows(factRows, previousFactRows, ["product_form"]);
   const lineRows = productAnalysisRows(factRows, previousFactRows, ["product_line"]);
   renderDonutChart("productFormDonut", formRows, "purchase_value", "单品/套组 GMV 结构", { labelKey: "product_form", limit: 5 });
+  renderShareCompareBars("productLineShareBars", lineRows, "product_line", { limit: 6 });
 
   renderTable("productLineTable", lineRows, [
     { key: "product_line", label: "产品线", sticky: true, filterKey: "product_line", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
@@ -2359,6 +2554,7 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
   ], 10, { previousSummaryRows: aggregate(previousFactRows, ["product_form"]) });
 
   const productCountryRows = productAnalysisRows(factRows, previousFactRows, ["product_line", "country"]);
+  renderHeatmap("productCountryHeatmap", productCountryRows, "product_line", "country", { xLimit: 5, yLimit: 6 });
   renderTable("productCountryTable", productCountryRows, [
     { key: "product_line", label: "产品线", sticky: true, filterKey: "product_line", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "country", label: "国家", filterKey: "country" },
@@ -2438,6 +2634,9 @@ function renderChannels() {
     previousProductRows
   ).sort((a, b) => b.channel_units - a.channel_units || b.channel_sales - a.channel_sales);
   renderChannelProductMix("usChannelProductMix", channelProductRows);
+  renderBars("usChannelProductBars", channelAggregate(currentRows, ["product_name"]).sort((a, b) => b.channel_units - a.channel_units), "product_name", "channel_units", 10, {
+    subText: (row) => `销售额 ${channelMoney(row.channel_sales, row)} / 件单价 ${channelMoney(row.unit_value, row)}`,
+  });
   renderTable("usChannelProductTable", channelProductRows, [
     { key: "channel", label: "渠道", sticky: true, filterKey: "channel" },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
@@ -2520,6 +2719,15 @@ function renderOnsite(factRows, previousFact) {
     : shopifyRows;
   const countryRows = addOnsiteShareMetrics(joinedOnsiteRows(factRows, countryShopifyRows, ["country"]))
     .sort((a, b) => b.shopify_sales - a.shopify_sales);
+  renderShareCompareBars("onsiteCountryShareBars", countryRows, "country", {
+    valueKey: "shopify_sales",
+    spendShareKey: "meta_spend_share",
+    salesShareKey: "shopify_sales_share",
+    spendLabel: "Meta花费",
+    salesLabel: "净销售",
+    valueFormat: money,
+    limit: 6,
+  });
   renderTable("onsiteCountryTable", countryRows, [
     { key: "country", label: "国家", sticky: true, filterKey: "country" },
     { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
@@ -2544,6 +2752,15 @@ function renderOnsite(factRows, previousFact) {
 
   const productComparisonRows = productOverviewRows(factRows, previousFact, shopifyRows, previousShopify);
   const previousProductComparisonRows = addOnsiteShareMetrics(joinedOnsiteRows(previousFact, previousShopify, ["product_name"]));
+  renderShareCompareBars("onsiteProductShareBars", productComparisonRows, "product_name", {
+    valueKey: "shopify_sales",
+    spendShareKey: "meta_spend_share",
+    salesShareKey: "shopify_sales_share",
+    spendLabel: "Meta花费",
+    salesLabel: "净销售",
+    valueFormat: money,
+    limit: 6,
+  });
   renderTable("onsiteProductComparisonTable", productComparisonRows, [
     { key: "product_name", label: "产品", sticky: true, filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
@@ -2636,22 +2853,11 @@ function render() {
   renderBars("materialBars", aggregate(adRows, ["material_name"]), "material_name", "spend", 120, { clickable: false });
   renderBars("overviewOperatorBars", aggregate(fact, ["operator"]), "operator", "spend", 8);
   renderAlerts(fact);
-  renderTable("overviewProductTable", metaProductRows(fact, previousFact), [
-    { key: "product_name", label: "产品", sticky: true, filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "gmv_share", label: "GMV占比", format: pct, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    { key: "aov", label: "客单", value: (row) => row, format: (row) => metricWithDelta(row, "aov", money, "aov_delta"), summaryValue: (row) => row.aov, summaryFormat: money, num: true },
-    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-    { key: "roas", label: "Meta ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
-    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-  ], 80, { previousSummaryRows: aggregate(previousFact, ["product_name"]) });
 
   renderProductPage(fact, previousFact, adRows, previousAdRows);
 
   const regions = regionPerformanceRows(fact, previousFact);
+  renderShareCompareBars("regionShareBars", regions, "region", { limit: 4 });
   renderTable("regionTable", regions, [
     { key: "region", label: "地区", sticky: true, filterKey: "region", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "country_count", label: "国家数", value: (row) => row, format: (row) => metricWithDelta(row, "country_count", number, "country_count_delta"), summaryValue: (row) => row.country_count, summaryFormat: number, num: true },
@@ -2682,6 +2888,7 @@ function render() {
   renderCountryQuickFilters(fact);
   renderCountryTrendConclusion(fact);
   const countryProductRows = addComparison(aggregate(fact, ["country", "product_name"]), previousFact, ["country", "product_name"]).sort((a, b) => b.purchase_value - a.purchase_value);
+  renderHeatmap("countryProductHeatmap", countryProductRows, "product_name", "country", { xLimit: 5, yLimit: 6 });
   renderTable("countryProductTable", countryProductRows, [
     { key: "country", label: "国家", sticky: true, filterKey: "country" },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
@@ -2698,6 +2905,7 @@ function render() {
   const materialRows = materialComparisonRows(fact, previousFact, materialInventoryRows, previousMaterialInventoryRows);
   renderDonutChart("materialSpendDonut", materialRows, "spend", "素材花费结构");
   renderDonutChart("materialSalesDonut", materialRows, "purchase_value", "素材销售结构");
+  renderShareCompareBars("materialShareBars", materialRows.filter((row) => !row.is_child), "material_label", { limit: 5 });
   renderTable("materialComparisonTable", materialRows, [
     { key: "material_label", label: "素材类型", sticky: true, format: (v, row) => `<span class="material-label ${row.is_child ? "child-material-label" : ""}"><span class="tag material-tag">${escapeHtml(v)}</span></span>` },
     { key: "material_type", label: "归类", filterKey: "material_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
@@ -2732,6 +2940,7 @@ function render() {
     const previousMaterialCount = previousMaterialCountMap.get(key) || 0;
     return { ...row, material_count: materialCount, material_count_delta: deltaText(materialCount, previousMaterialCount) };
   }).sort((a, b) => b.purchase_value - a.purchase_value);
+  renderHeatmap("creativeProductHeatmap", aggregate(adRows, ["product_name", "material_type"]), "material_type", "product_name", { xLimit: 4, yLimit: 6 });
   renderTable("creativeProductTable", creativeProductRows, [
     { key: "product_name", label: "产品", sticky: true, filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "material_name", label: "素材", name: true, format: (v) => `<span class="tag material-tag">${escapeHtml(v)}</span>` },
@@ -2769,6 +2978,7 @@ function render() {
 
   const operatorRows = aggregate(fact, ["operator"]).sort((a, b) => b.spend - a.spend);
   renderDonutChart("operatorShareDonut", operatorRows, "spend", "投手花费占比", { labelKey: "operator", limit: 8 });
+  renderQuadrantChart("operatorQuadrant", operatorRows, "operator", { limit: 10 });
   renderOperatorAlerts(fact);
   const opProductRows = addComparison(aggregate(fact, ["operator", "product_name"]), previousFact, ["operator", "product_name"]).sort((a, b) => b.spend - a.spend);
   renderTable("operatorProductTable", opProductRows, [
@@ -2805,6 +3015,7 @@ function render() {
     ["landing_type"],
   ).sort((a, b) => b.spend - a.spend);
   renderLandingTypeBars("landingTypeBars", landingTypeComparisonRows);
+  renderCategoryLineChart("landingTypeTrend", aggregate(landingRows, ["date_start", "landing_type"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start))), "landing_type", "purchase_value", { limit: 3 });
   renderTable("landingTypeTable", landingTypeComparisonRows, [
     { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
