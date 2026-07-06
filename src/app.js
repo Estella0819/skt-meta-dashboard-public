@@ -831,7 +831,7 @@ function insightTone(value, inverse = false) {
   return good ? "positive" : "negative";
 }
 
-function renderActionInsights(fact, previousFact) {
+function renderActionInsights(fact, previousFact, context = {}) {
   const current = summaryOf(fact);
   const previous = summaryOf(previousFact);
   const spendDelta = deltaValue(current.spend, previous.spend);
@@ -856,6 +856,31 @@ function renderActionInsights(fact, previousFact) {
   const productFormRows = aggregate(fact, ["product_form"]).filter((row) => row.spend > 100).sort((a, b) => b.roas - a.roas);
   const bestProductForm = productFormRows.find((row) => row.purchase_times >= 3) || productFormRows[0];
   const productCountryRisk = aggregate(fact, ["product_line", "country"]).filter((row) => row.spend > 200 && row.roas < 1.4).sort((a, b) => b.spend - a.spend)[0];
+  const landingRows = context.landingRows || fact.map((row) => ({ ...row, landing_type: landingPageType(row) }));
+  const previousLandingRows = context.previousLandingRows || previousFact.map((row) => ({ ...row, landing_type: landingPageType(row) }));
+  const landingTypeRows = addComparison(aggregate(landingRows, ["landing_type"]), previousLandingRows, ["landing_type"]).filter((row) => row.spend > 100);
+  const topLanding = [...landingTypeRows].sort((a, b) => b.spend - a.spend)[0];
+  const bestLanding = [...landingTypeRows].filter((row) => row.purchase_times >= 3).sort((a, b) => b.roas - a.roas)[0];
+  const riskLanding = [...landingTypeRows].filter((row) => row.spend > 300 && row.roas < 1.5).sort((a, b) => b.spend - a.spend)[0];
+  const shopifyRows = filteredShopifyRows();
+  const previousShopifyRows = comparisonShopifyRows();
+  const shopify = tableSummary(shopifyRows);
+  const previousShopify = tableSummary(previousShopifyRows);
+  const onsiteRoas = current.spend ? shopify.net_sales / current.spend : 0;
+  const previousOnsiteRoas = previous.spend ? previousShopify.net_sales / previous.spend : 0;
+  const onsiteProducts = addOnsiteShareMetrics(joinedOnsiteRows(fact, shopifyRows, ["product_name"]))
+    .filter((row) => row.spend > 100 || row.shopify_sales > 100)
+    .sort((a, b) => Math.abs(b.share_gap) - Math.abs(a.share_gap));
+  const onsiteMismatch = onsiteProducts[0];
+  const onsiteStrong = [...onsiteProducts].filter((row) => row.efficiency_index >= 1.2 && row.onsite_roas >= 1.8).sort((a, b) => b.shopify_sales - a.shopify_sales)[0];
+  const unmatchedSales = shopifyRows.filter((row) => row.product_name === "未匹配").reduce((sum, row) => sum + getMetric(row, "net_sales"), 0);
+  const channelRows = filteredChannelRows(data.us_channel_product_daily);
+  const previousChannelRows = comparisonChannelRows(data.us_channel_product_daily);
+  const channelSummary = channelAggregate(channelRows)[0] || { channel_sales: 0, channel_units: 0 };
+  const previousChannelSummary = channelAggregate(previousChannelRows)[0] || { channel_sales: 0, channel_units: 0 };
+  const topChannel = channelAggregate(channelRows, ["channel"]).sort((a, b) => b.channel_sales - a.channel_sales)[0];
+  const topChannelProduct = channelAggregate(channelRows, ["channel", "product_name"]).sort((a, b) => b.channel_units - a.channel_units)[0];
+  const channelRisk = channelAggregate(channelRows, ["channel", "product_name"]).filter((row) => row.channel_sales > 100 && row.channel_units <= 1).sort((a, b) => b.channel_sales - a.channel_sales)[0];
   const overviewCards = [
     {
       label: "经营变化",
@@ -958,6 +983,84 @@ function renderActionInsights(fact, previousFact) {
       },
       overviewCards[0],
     ],
+    landing: [
+      {
+        label: "主要承接",
+        title: topLanding ? `${topLanding.landing_type} 花费占比 ${pct(current.spend ? topLanding.spend / current.spend : 0)}` : "暂无落地页数据",
+        body: topLanding ? `花费 ${money(topLanding.spend)}，GMV ${money(topLanding.purchase_value)}，ROAS ${ratio(topLanding.roas)}。` : "当前筛选下没有可分析落地页。",
+        tone: "neutral",
+      },
+      {
+        label: "高效承接",
+        title: bestLanding ? `${bestLanding.landing_type} ROAS ${ratio(bestLanding.roas)}` : "暂无高效承接",
+        body: bestLanding ? `转化 ${number(bestLanding.purchase_times)}，CVR ${pct(bestLanding.cvr)}，GMV ${bestLanding.sales_delta.text}。` : "需要更高转化量后再判断落地页效率。",
+        tone: bestLanding ? "positive" : "neutral",
+      },
+      {
+        label: "承接风险",
+        title: riskLanding ? `${riskLanding.landing_type} ROAS ${ratio(riskLanding.roas)}` : "暂无明显风险",
+        body: riskLanding ? `花费 ${money(riskLanding.spend)}，CPA ${money(riskLanding.cpa)}，优先看对应产品和素材。` : "当前筛选下落地页没有明显低效消耗。",
+        tone: riskLanding ? "negative" : "neutral",
+      },
+      {
+        label: "规模变化",
+        title: `落地页花费 ${deltaText(current.spend, previous.spend).text}`,
+        body: `GMV ${deltaText(current.purchase_value, previous.purchase_value).text}，ROAS ${deltaText(current.roas, previous.roas).text}。`,
+        tone: insightTone(roasDelta),
+      },
+    ],
+    onsite: [
+      {
+        label: "站内销售",
+        title: `Shopify净销售 ${money(shopify.net_sales)}`,
+        body: `订单 ${number(shopify.orders)}，客单 ${money(shopify.aov)}，净销量 ${number(shopify.net_items_sold)}。`,
+        tone: insightTone(deltaValue(shopify.net_sales, previousShopify.net_sales)),
+      },
+      {
+        label: "站内效率",
+        title: `站内ROAS ${ratio(onsiteRoas)}`,
+        body: `对比 ${deltaText(onsiteRoas, previousOnsiteRoas).text}，口径为 Shopify Net Sales / Meta 花费。`,
+        tone: insightTone(deltaValue(onsiteRoas, previousOnsiteRoas)),
+      },
+      {
+        label: "占比偏差",
+        title: onsiteMismatch ? `${onsiteMismatch.product_name} ${pct(onsiteMismatch.share_gap)}` : "暂无占比偏差",
+        body: onsiteMismatch ? `站内销售占比 ${pct(onsiteMismatch.shopify_sales_share)}，Meta花费占比 ${pct(onsiteMismatch.meta_spend_share)}。` : "当前筛选下站内销售与投放占比比较接近。",
+        tone: onsiteMismatch && Math.abs(onsiteMismatch.share_gap) > 0.08 ? "negative" : "neutral",
+      },
+      {
+        label: "可加码产品",
+        title: onsiteStrong ? `${onsiteStrong.product_name} 站内ROAS ${ratio(onsiteStrong.onsite_roas)}` : "暂无明确站内强项",
+        body: onsiteStrong ? `净销售 ${money(onsiteStrong.shopify_sales)}，效率指数 ${ratio(onsiteStrong.efficiency_index)}。` : `未匹配销售占比 ${pct(shopify.net_sales ? unmatchedSales / shopify.net_sales : 0)}，先完善映射。`,
+        tone: onsiteStrong ? "positive" : "neutral",
+      },
+    ],
+    channels: [
+      {
+        label: "主力渠道",
+        title: topChannel ? `${topChannel.channel} 占比 ${pct(topChannel.sales_share)}` : "暂无渠道数据",
+        body: topChannel ? `销售额 ${money(topChannel.channel_sales)}，销量 ${number(topChannel.channel_units)}。` : "当前筛选下没有三渠道数据。",
+        tone: "neutral",
+      },
+      {
+        label: "渠道销售",
+        title: `总销售 ${money(channelSummary.channel_sales)}`,
+        body: `环比 ${deltaText(channelSummary.channel_sales, previousChannelSummary.channel_sales).text}，销量 ${number(channelSummary.channel_units)}。`,
+        tone: insightTone(deltaValue(channelSummary.channel_sales, previousChannelSummary.channel_sales)),
+      },
+      {
+        label: "最高销量产品",
+        title: topChannelProduct ? `${topChannelProduct.product_name}` : "暂无产品销量",
+        body: topChannelProduct ? `${topChannelProduct.channel}，销量 ${number(topChannelProduct.channel_units)}，销售额 ${money(topChannelProduct.channel_sales)}。` : "当前筛选下没有产品销量数据。",
+        tone: topChannelProduct ? "positive" : "neutral",
+      },
+      {
+        label: "数据复核",
+        title: channelRisk ? `${channelRisk.channel} / ${channelRisk.product_name}` : "暂无明显异常",
+        body: channelRisk ? `销售额 ${money(channelRisk.channel_sales)} 但销量 ${number(channelRisk.channel_units)}，建议复核商品口径。` : "当前渠道商品数据没有明显高销售低销量异常。",
+        tone: channelRisk ? "negative" : "neutral",
+      },
+    ],
   };
   const cards = cardsByView[state.view] || overviewCards;
   document.getElementById("actionInsights").innerHTML = cards.map((card) => `
@@ -1001,7 +1104,7 @@ function renderKpiItems(items) {
   }).join("");
 }
 
-function renderKpis(rows, previousRows) {
+function renderKpis(rows, previousRows, context = {}) {
   const summary = summaryOf(rows);
   const previous = summaryOf(previousRows);
   const countryCount = new Set(rows.map((row) => row.country).filter(Boolean)).size;
@@ -1077,8 +1180,8 @@ function renderKpis(rows, previousRows) {
   }
 
   if (state.view === "landing") {
-    const landingRows = rows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
-    const previousLandingRows = previousRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
+    const landingRows = context.landingRows || rows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
+    const previousLandingRows = context.previousLandingRows || previousRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
     const landingTypes = new Set(landingRows.map((row) => row.landing_type)).size;
     const previousLandingTypes = new Set(previousLandingRows.map((row) => row.landing_type)).size;
     const topLanding = aggregate(landingRows, ["landing_type"]).sort((a, b) => b.spend - a.spend)[0];
@@ -2841,9 +2944,9 @@ function render() {
   const landingRows = adRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
   const previousLandingRows = previousAdRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
   renderInsightSummary(fact, previousFact);
-  renderKpis(fact, previousFact);
+  renderKpis(fact, previousFact, { landingRows, previousLandingRows });
   renderComparison(fact, previousFact);
-  renderActionInsights(fact, previousFact);
+  renderActionInsights(fact, previousFact, { landingRows, previousLandingRows });
 
   const daily = aggregate(fact, ["date_start"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start)));
   renderLineChart("trendChart", daily, state.trendMetric);
