@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Meta 投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260706-data-refresh" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260706-product-page" />
   </head>
   <body>
     <header class="topbar">
@@ -18,6 +18,7 @@
         </div>
         <nav class="tabs" aria-label="看板页面">
           <button class="tab active" data-view="overview">总览</button>
+          <button class="tab" data-view="product">产品</button>
           <button class="tab" data-view="country">国家</button>
           <button class="tab" data-view="creative">素材</button>
           <button class="tab" data-view="operator">投手</button>
@@ -52,7 +53,7 @@
           对比结束
           <input id="compareEndDateFilter" type="date" />
         </label>
-        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,country,creative,operator,landing,onsite">
+        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,product,country,creative,operator,landing,onsite">
           <span class="filter-label">账户</span>
           <button type="button" class="multi-trigger" id="accountFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="accountFilterPanel"></div>
@@ -72,15 +73,25 @@
       </section>
 
       <section class="context-filterbar" aria-label="当前页面筛选">
-        <div class="multi-select" data-filter="country" data-views="country,landing,onsite">
+        <div class="multi-select" data-filter="country" data-views="product,country,landing,onsite">
           <span class="filter-label">国家</span>
           <button type="button" class="multi-trigger" id="countryFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="countryFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="product" data-views="country,creative,landing,onsite,channels">
+        <div class="multi-select" data-filter="product" data-views="product,country,creative,landing,onsite,channels">
           <span class="filter-label">产品</span>
           <button type="button" class="multi-trigger" id="productFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="productFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="productLine" data-views="product,creative">
+          <span class="filter-label">产品线</span>
+          <button type="button" class="multi-trigger" id="productLineFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="productLineFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="productForm" data-views="product,creative">
+          <span class="filter-label">单品/套组</span>
+          <button type="button" class="multi-trigger" id="productFormFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="productFormFilterPanel"></div>
         </div>
         <div class="multi-select" data-filter="landingType" data-views="landing">
           <span class="filter-label">落地页类型</span>
@@ -175,6 +186,77 @@
           </header>
           <div class="table-wrap">
             <table id="overviewProductTable"></table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-shell hidden" id="productView">
+        <section class="overview-layout">
+          <article class="panel trend-panel">
+            <header>
+              <h3>产品趋势</h3>
+              <span class="panel-note">Meta 投放端趋势，跟随产品线 / 单品套组筛选</span>
+            </header>
+            <div class="trend-body">
+              <div id="productTrend" class="chart"></div>
+              <aside id="productTrendConclusion" class="chart-conclusion"></aside>
+            </div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>单品/套组结构</h3>
+              <span class="panel-note">按 Meta GMV 占比展示</span>
+            </header>
+            <div id="productFormDonut" class="donut-card single-donut"></div>
+          </article>
+        </section>
+        <section class="split-grid">
+          <article class="panel">
+            <header>
+              <h3>产品线整体表现</h3>
+              <span class="panel-note">按产品线汇总；点击产品线可筛选全页</span>
+            </header>
+            <div class="table-wrap compact">
+              <table id="productLineTable"></table>
+            </div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>单品 vs 套组</h3>
+              <span class="panel-note">判断当前投放更适合单品素材还是套组素材</span>
+            </header>
+            <div class="table-wrap compact">
+              <table id="productFormTable"></table>
+            </div>
+          </article>
+        </section>
+        <section class="split-grid">
+          <article class="panel">
+            <header>
+              <h3>产品线 x 国家</h3>
+              <span class="panel-note">按 Meta GMV 排序；国家作为下钻维度</span>
+            </header>
+            <div class="table-wrap">
+              <table id="productCountryTable"></table>
+            </div>
+          </article>
+          <article class="panel">
+            <header>
+              <h3>产品线 x 素材类型</h3>
+              <span class="panel-note">看各产品线适合图文、视频、合创或视频来源</span>
+            </header>
+            <div class="table-wrap">
+              <table id="productMaterialTypeTable"></table>
+            </div>
+          </article>
+        </section>
+        <article class="panel">
+          <header>
+            <h3>标准产品表现</h3>
+            <span class="panel-note">使用你确认后的标准产品名，并保留产品线和单品/套组标签</span>
+          </header>
+          <div class="table-wrap">
+            <table id="standardProductTable"></table>
           </div>
         </article>
       </section>
@@ -465,7 +547,7 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260706-data-refresh"></script>
-    <script src="./src/app.js?v=20260706-data-refresh"></script>
+    <script src="./data/dashboard-data.js?v=20260706-product-page"></script>
+    <script src="./src/app.js?v=20260706-product-page"></script>
   </body>
 </html>
