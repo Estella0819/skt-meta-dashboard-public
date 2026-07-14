@@ -2796,12 +2796,34 @@ function attributionRowsForWindow(rows) {
   return (rows || []).filter((row) => row.date_start >= state.startDate && row.date_start <= state.endDate);
 }
 
+function normalizedAttributionDailyRows() {
+  const byDate = new Map((data.attribution_daily || []).map((row) => [row.date_start, { ...row }]));
+  (data.attribution_channel || []).forEach((row) => {
+    const current = byDate.get(row.date_start) || { date_start: row.date_start };
+    const prefix = row.channel === "Meta" ? "meta" : (row.channel === "Google Ads" ? "google" : "");
+    if (prefix) {
+      if (current[`${prefix}_spend`] === null || current[`${prefix}_spend`] === undefined) current[`${prefix}_spend`] = row.spend;
+      if (current[`${prefix}_purchases`] === null || current[`${prefix}_purchases`] === undefined) current[`${prefix}_purchases`] = row.platform_purchases;
+      if (current[`${prefix}_value`] === null || current[`${prefix}_value`] === undefined) current[`${prefix}_value`] = row.platform_value;
+    }
+    byDate.set(row.date_start, current);
+  });
+  (data.shopify_daily || []).forEach((row) => {
+    const current = byDate.get(row.date_start) || { date_start: row.date_start };
+    if (current.shopify_orders === null || current.shopify_orders === undefined) current.shopify_orders = row.orders;
+    if (current.shopify_total_sales === null || current.shopify_total_sales === undefined) current.shopify_total_sales = row.total_sales;
+    byDate.set(row.date_start, current);
+  });
+  return [...byDate.values()].sort((a, b) => a.date_start.localeCompare(b.date_start));
+}
+
 function attributionChannelSelected(channel) {
   return !state.channel.length || state.channel.includes(channel);
 }
 
 function attributionChannelOptions() {
-  return [...new Set((data.attribution_channel || []).map((row) => row.channel || "Unknown"))].sort();
+  const available = new Set((data.attribution_channel || []).map((row) => row.channel));
+  return ["Meta", "Google Ads"].filter((channel) => available.has(channel));
 }
 
 function channelOptionsForView() {
@@ -2831,45 +2853,54 @@ function renderAttributionSourceHealth() {
   }).join("") || `<p class="empty">暂无数据源状态。</p>`;
 }
 
-function renderAttributionKpis(rows) {
+function attributionPeriodSummary(rows) {
   const optionalSum = (key) => {
     const available = rows.filter((row) => row[key] !== null && row[key] !== undefined);
     return available.length ? available.reduce((total, row) => total + getMetric(row, key), 0) : null;
   };
-  const shopifySales = optionalSum("shopify_net_sales");
-  const shopifyOrders = optionalSum("shopify_orders");
-  const metaSpend = optionalSum("meta_spend");
-  const metaValue = optionalSum("meta_value");
-  const googleSpend = optionalSum("google_spend");
-  const googleValue = optionalSum("google_value");
-  const ga4Purchases = optionalSum("ga4_purchases");
-  const ga4Revenue = optionalSum("ga4_revenue");
-  const availability = (key) => `${rows.filter((row) => row[key] !== null && row[key] !== undefined).length}/${rows.length} 天`;
-  document.getElementById("attributionKpis").innerHTML = `
-    <article><span>Shopify 净销售</span><strong>${money(shopifySales)}</strong><small>${number(shopifyOrders)} 订单 · 财务真值 · 覆盖 ${availability("shopify_net_sales")}</small></article>
-    <article><span>广告花费 / 平台价值</span><strong>${money(metaSpend)} / ${money(metaValue)}</strong><small>平台 ROAS ${metaSpend ? ratio(metaValue / metaSpend) : "-"} · 覆盖 ${availability("meta_spend")}</small></article>
-    <article><span>Google Ads 花费 / 标准价值</span><strong>${money(googleSpend)} / ${money(googleValue)}</strong><small>平台 ROAS ${googleSpend ? ratio(googleValue / googleSpend) : "-"} · 覆盖 ${availability("google_spend")}</small></article>
-    <article><span>GA4 购买 / 行为收入</span><strong>${number(ga4Purchases)} / ${money(ga4Revenue)}</strong><small>行为佐证 · 覆盖 ${availability("ga4_revenue")}</small></article>`;
+  return {
+    shopifyOrders: optionalSum("shopify_orders"),
+    shopifyTotalSales: optionalSum("shopify_total_sales"),
+    meta: {
+      spend: optionalSum("meta_spend"),
+      value: optionalSum("meta_value"),
+      purchases: optionalSum("meta_purchases"),
+    },
+    google: {
+      spend: optionalSum("google_spend"),
+      value: optionalSum("google_value"),
+      purchases: optionalSum("google_purchases"),
+    },
+  };
 }
 
-function renderAttributionTrend(rows, channelRows) {
+function selectedAttributionChannel(channel, values) {
+  return attributionChannelSelected(channel)
+    ? values
+    : { spend: null, value: null, purchases: null };
+}
+
+function renderAttributionKpis(rows) {
+  const summary = attributionPeriodSummary(rows);
+  const meta = selectedAttributionChannel("Meta", summary.meta);
+  const google = selectedAttributionChannel("Google Ads", summary.google);
+  const metaEfficiency = DashboardMetrics.calculateChannelEfficiency(meta);
+  const googleEfficiency = DashboardMetrics.calculateChannelEfficiency(google);
+  const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(meta, google, summary.shopifyTotalSales);
+  const availability = (key) => `${rows.filter((row) => row[key] !== null && row[key] !== undefined).length}/${rows.length} 天`;
+  const channelCard = (label, channel, efficiency, coverageKey) => `
+    <article><span>${escapeHtml(label)}</span><strong>${money(channel.spend)} / ${money(channel.value)}</strong>
+      <small>花费 / 平台 GMV · ROAS ${ratio(efficiency.roas)}<br>${number(channel.purchases)} 转化 · CPA ${money(efficiency.cpa)} · AOV ${money(efficiency.aov)} · ${availability(coverageKey)}</small></article>`;
+  document.getElementById("attributionKpis").innerHTML = `
+    <article><span>Shopify Total Sales</span><strong>${money(summary.shopifyTotalSales)}</strong><small>${number(summary.shopifyOrders)} 订单 · 站内财务基准 · ${availability("shopify_total_sales")}</small></article>
+    ${channelCard("Meta", meta, metaEfficiency, "meta_spend")}
+    ${channelCard("Google Ads", google, googleEfficiency, "google_spend")}
+    <article><span>双渠道总览</span><strong>${money(diagnostics.totalSpend)}</strong><small>合计花费 · 混合 MER ${ratio(diagnostics.blendedMer)}<br>总广告投入率 ${pct(diagnostics.adInvestmentRate)}</small></article>
+    <article><span>归因溢出</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong><small>平台 GMV ${money(diagnostics.totalValue)} vs Shopify Total Sales<br>仅表示平台认领溢出，不等同投放饱和</small></article>`;
+}
+
+function renderAttributionTrend(rows) {
   const series = [];
-  if (state.channel.length) {
-    const metricKey = {
-      platform_value: "platform_value",
-      spend: "spend",
-      purchases: "platform_purchases",
-      shopify_net_sales: "shopify_revenue",
-    }[state.attributionMetric];
-    channelRows.forEach((row) => {
-      if (!attributionChannelSelected(row.channel)) return;
-      if (state.attributionMetric === "shopify_net_sales" && row.channel !== "Shopify 总站") return;
-      if (row[metricKey] === null || row[metricKey] === undefined) return;
-      series.push({ date_start: row.date_start, series: row.channel, value: row[metricKey] });
-    });
-    renderCategoryLineChart("attributionTrend", series, "series", "value", { limit: 4, missingAsGap: true });
-    return;
-  }
   const add = (row, label, key) => {
     if (row[key] !== null && row[key] !== undefined && attributionChannelSelected(label)) {
       series.push({ date_start: row.date_start, series: label, value: row[key] });
@@ -2885,11 +2916,70 @@ function renderAttributionTrend(rows, channelRows) {
     } else if (state.attributionMetric === "purchases") {
       add(row, "Meta", "meta_purchases");
       add(row, "Google Ads", "google_purchases");
+    } else if (state.attributionMetric === "platform_roas") {
+      const metaRoas = DashboardMetrics.calculateChannelEfficiency({
+        spend: row.meta_spend,
+        value: row.meta_value,
+        purchases: row.meta_purchases,
+      }).roas;
+      const googleRoas = DashboardMetrics.calculateChannelEfficiency({
+        spend: row.google_spend,
+        value: row.google_value,
+        purchases: row.google_purchases,
+      }).roas;
+      if (metaRoas !== null && attributionChannelSelected("Meta")) {
+        series.push({ date_start: row.date_start, series: "Meta", value: metaRoas });
+      }
+      if (googleRoas !== null && attributionChannelSelected("Google Ads")) {
+        series.push({ date_start: row.date_start, series: "Google Ads", value: googleRoas });
+      }
     } else {
-      add(row, "Shopify 总站", "shopify_net_sales");
+      if (row.shopify_total_sales !== null && row.shopify_total_sales !== undefined) {
+        series.push({ date_start: row.date_start, series: "Shopify Total Sales", value: row.shopify_total_sales });
+      }
     }
   });
   renderCategoryLineChart("attributionTrend", series, "series", "value", { limit: 4, missingAsGap: true });
+}
+
+function attributionEfficiencyRows(summary) {
+  const channels = [
+    ["Meta", summary.meta],
+    ["Google Ads", summary.google],
+  ].filter(([channel]) => attributionChannelSelected(channel));
+  const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(
+    selectedAttributionChannel("Meta", summary.meta),
+    selectedAttributionChannel("Google Ads", summary.google),
+    summary.shopifyTotalSales,
+  );
+  return channels.map(([channel, values]) => {
+    const efficiency = DashboardMetrics.calculateChannelEfficiency(values);
+    return {
+      channel,
+      spend: values.spend,
+      spend_share: diagnostics.totalSpend ? values.spend / diagnostics.totalSpend : null,
+      purchase_value: values.value,
+      sales_share: diagnostics.totalValue ? values.value / diagnostics.totalValue : null,
+      purchase_times: values.purchases,
+      roas: efficiency.roas,
+      cpa: efficiency.cpa,
+      aov: efficiency.aov,
+    };
+  });
+}
+
+function renderAttributionDiagnostics(summary) {
+  const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(
+    selectedAttributionChannel("Meta", summary.meta),
+    selectedAttributionChannel("Google Ads", summary.google),
+    summary.shopifyTotalSales,
+  );
+  document.getElementById("attributionDiagnostics").innerHTML = `
+    <div><span>Shopify Total Sales</span><strong>${money(summary.shopifyTotalSales)}</strong></div>
+    <div><span>总广告投入率</span><strong>${pct(diagnostics.adInvestmentRate)}</strong></div>
+    <div><span>混合 MER</span><strong>${ratio(diagnostics.blendedMer)}</strong></div>
+    <div><span>平台归因溢出率</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong></div>
+    <small>溢出率用于观察平台重复认领和归因压力；需结合投入率与混合 MER 判断投放是否趋于饱和。</small>`;
 }
 
 function aggregateAttributionChannels(rows) {
@@ -2974,23 +3064,42 @@ function renderAttributionIssues() {
 }
 
 function renderAttribution() {
-  const dailyRows = attributionRowsForWindow(data.attribution_daily || []);
-  const channelRows = attributionRowsForWindow(data.attribution_channel || []);
+  const dailyRows = attributionRowsForWindow(normalizedAttributionDailyRows());
   const coverageRows = attributionRowsForWindow(data.attribution_coverage_daily || []);
+  const summary = attributionPeriodSummary(dailyRows);
+  const efficiencyRows = attributionEfficiencyRows(summary);
   renderAttributionSourceHealth();
   renderAttributionKpis(dailyRows);
-  renderAttributionTrend(dailyRows, channelRows);
+  renderAttributionTrend(dailyRows);
   renderAttributionCoverage(coverageRows);
-  renderTable("attributionChannelTable", aggregateAttributionChannels(channelRows), [
+  renderTable("attributionEfficiencyTable", efficiencyRows, [
     { key: "channel", label: "渠道", sticky: true, filterKey: "channel" },
-    { key: "metric_basis", label: "口径" },
-    { key: "spend", label: "花费", format: money, num: true },
-    { key: "platform_value", label: "平台归因值", format: money, num: true },
-    { key: "platform_roas", label: "平台 ROAS", format: ratio, num: true },
-    { key: "shopify_revenue", label: "Shopify 承接", format: money, num: true },
-    { key: "coverage_pct", label: "覆盖率", format: pct, num: true },
-    { key: "evidence_level", label: "证据等级", value: (row) => row, format: (row) => `${evidenceBadge(row.evidence_level)}${row.quality_flag ? `<small class="evidence-note">${escapeHtml(row.quality_flag)}</small>` : ""}` },
-  ], 40);
+    {
+      key: "spend",
+      label: "花费 / 占比",
+      value: (row) => row,
+      format: (row) => metricStack(money(row.spend), pct(row.spend_share)),
+      summaryKey: "spend",
+      summaryFormat: (value, totals) => metricStack(money(value), pct(totals.spend_share)),
+      num: true,
+    },
+    {
+      key: "purchase_value",
+      label: "平台 GMV / 占比",
+      value: (row) => row,
+      format: (row) => metricStack(money(row.purchase_value), pct(row.sales_share)),
+      summaryKey: "purchase_value",
+      summaryFormat: (value, totals) => metricStack(money(value), pct(totals.sales_share)),
+      num: true,
+    },
+    { key: "purchase_times", label: "转化数", format: number, num: true },
+    { key: "roas", label: "ROAS", format: ratio, num: true },
+    { key: "cpa", label: "CPA", format: money, num: true },
+    { key: "aov", label: "AOV", format: money, num: true },
+  ], 2, {
+    insight: "对比两个平台的花费结构、平台归因结构与效率；平台 GMV 不与 Shopify Total Sales 相加为总收入。",
+  });
+  renderAttributionDiagnostics(summary);
   renderAttributionIssues();
 }
 

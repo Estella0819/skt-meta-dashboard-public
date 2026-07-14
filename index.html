@@ -554,10 +554,11 @@
                 <span class="panel-note">同屏对比平台归因值、广告花费与 Shopify 财务真值</span>
               </div>
               <select id="attributionTrendMetric" class="compact-select" aria-label="趋势指标">
-                <option value="platform_value">平台归因值</option>
+                <option value="platform_value">平台归因 GMV</option>
                 <option value="spend">广告花费</option>
                 <option value="purchases">平台转化</option>
-                <option value="shopify_net_sales">Shopify 净销售</option>
+                <option value="platform_roas">平台 ROAS</option>
+                <option value="shopify_total_sales">Shopify Total Sales</option>
               </select>
             </header>
             <div id="attributionTrend" class="chart attribution-chart"></div>
@@ -572,10 +573,11 @@
         </section>
         <article class="panel">
           <header>
-            <h3>渠道表现与证据等级</h3>
-            <span class="panel-note">Shopify 为财务真值；媒体平台为平台归因口径，不直接相加</span>
+            <h3>Meta 与 Google 投放效率</h3>
+            <span class="panel-note">平台 GMV 为各渠道自归因口径；SUM 行按合计值重新计算</span>
           </header>
-          <div class="table-wrap compact"><table id="attributionChannelTable"></table></div>
+          <div class="table-wrap compact"><table id="attributionEfficiencyTable"></table></div>
+          <div id="attributionDiagnostics" class="attribution-diagnostics"></div>
         </article>
         <article class="panel">
           <header>
