@@ -409,7 +409,7 @@ function deriveMetrics(row) {
   row.ctr = row.impressions ? row.clicks / row.impressions : 0;
   row.cvr = row.clicks ? row.purchase_times / row.clicks : 0;
   row.cpm = row.impressions ? (row.spend / row.impressions) * 1000 : 0;
-  row.aov = row.purchase_times ? row.purchase_value / row.purchase_times : 0;
+  row.aov = DashboardMetrics.calculateAov(row.purchase_value, row.purchase_times);
   return row;
 }
 
@@ -1651,7 +1651,7 @@ function renderBars(id, rows, labelKey, metric = "spend", limit = 10, options = 
           ${options.subText
             ? options.subText(row)
             : `<span class="efficiency-chip ${efficiencyTone}">${escapeHtml(efficiencyText)}</span>
-              ROAS ${ratio(row.roas)} / CPA ${money(row.cpa)} / 转化 ${number(row.purchase_times)}`}
+              ROAS ${ratio(row.roas)} / CPA ${money(row.cpa)} / Meta AOV ${money(row.aov)} / 转化 ${number(row.purchase_times)}`}
         </div>
       </div>
     `;
@@ -2196,6 +2196,22 @@ function metricWithDelta(row, key, formatter, deltaKey, inverse = false) {
   return metricStack(formatter(row[key]), deltaBadge(row[deltaKey], inverse));
 }
 
+function metaAovColumn(options = {}) {
+  const key = options.key || "aov";
+  const deltaKey = options.deltaKey || "aov_delta";
+  return {
+    key,
+    label: options.label || "Meta AOV",
+    value: (row) => row,
+    format: (row) => options.showDelta === false
+      ? money(row[key])
+      : metricWithDelta(row, key, money, deltaKey),
+    summaryKey: key,
+    summaryFormat: money,
+    num: true,
+  };
+}
+
 function tableSummary(rows) {
   const summary = {};
   const sumKeys = [
@@ -2234,7 +2250,9 @@ function tableSummary(rows) {
   summary.ctr = summary.impressions ? summary.clicks / summary.impressions : 0;
   summary.cvr = summary.clicks ? summary.purchase_times / summary.clicks : 0;
   summary.cpm = summary.impressions ? (summary.spend / summary.impressions) * 1000 : 0;
-  summary.aov = summary.purchase_times ? summary.purchase_value / summary.purchase_times : (summary.orders ? summary.net_sales / summary.orders : 0);
+  summary.aov = DashboardMetrics.calculateAovFromRows(rows)
+    || DashboardMetrics.calculateAovFromRows(rows, "net_sales", "orders");
+  summary.meta_aov = DashboardMetrics.calculateAovFromRows(rows, "meta_purchase_value", "meta_purchase_times");
   summary.unit_value = summary.channel_units ? summary.channel_sales / summary.channel_units : 0;
   summary.shopify_aov = summary.shopify_orders ? summary.shopify_sales / summary.shopify_orders : 0;
   summary.gmv_share = rows.reduce((sum, row) => sum + getMetric(row, "gmv_share"), 0) || (summary.purchase_value ? 1 : 0);
@@ -2500,6 +2518,7 @@ function joinedOnsiteRows(factRows, shopifyRows, dims) {
       spend,
       meta_purchase_value: metaSales,
       meta_purchase_times: getMetric(meta, "purchase_times"),
+      meta_aov: DashboardMetrics.calculateAov(metaSales, getMetric(meta, "purchase_times")),
       meta_roas: getMetric(meta, "roas"),
       shopify_orders: getMetric(shopify, "orders"),
       shopify_net_items_sold: getMetric(shopify, "net_items_sold"),
@@ -2619,6 +2638,7 @@ function productOverviewRows(factRows, previousFactRows, shopifyRows, previousSh
         ...row,
         shopify_sales_delta: deltaText(row.shopify_sales, previous.shopify_sales),
         spend_delta: deltaText(row.spend, previous.spend),
+        meta_aov_delta: deltaText(row.meta_aov, previous.meta_aov),
         onsite_roas_delta: deltaText(row.onsite_roas, previous.onsite_roas),
       };
     })
@@ -2660,7 +2680,7 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    { key: "aov", label: "客单", value: (row) => row, format: (row) => metricWithDelta(row, "aov", money, "aov_delta"), summaryValue: (row) => row.aov, summaryFormat: money, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
   ], 10, { previousSummaryRows: aggregate(previousFactRows, ["standard_product_name"]) });
@@ -2671,6 +2691,7 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
@@ -2684,6 +2705,7 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
@@ -2697,6 +2719,7 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
     { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
   ], 10, { previousSummaryRows: aggregate(previousAdRows, ["standard_product_name", "material_type"]) });
@@ -2709,6 +2732,7 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
     { key: "sales_share", label: "GMV占比", format: pct, num: true },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
     { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
@@ -3061,13 +3085,14 @@ function renderOnsite(factRows, previousFact) {
     { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
     { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
     { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
+    metaAovColumn({ key: "meta_aov", label: "Meta AOV", showDelta: false }),
     { key: "sales_gap", label: "销售差额", format: salesGapBadge, num: true },
     { key: "spend", label: "广告花费", format: money, num: true },
     { key: "onsite_roas", label: "站内ROAS", format: ratio, num: true },
     { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
     { key: "shopify_orders", label: "订单", format: number, num: true },
     { key: "shopify_net_items_sold", label: "净销量", format: number, num: true },
-    { key: "shopify_aov", label: "AOV", format: money, num: true },
+    { key: "shopify_aov", label: "Shopify AOV", format: money, num: true },
   ], 60, {
     previousSummaryRows: addOnsiteShareMetrics(joinedOnsiteRows(previousFact, !state.product.length
       ? filteredShopifyDailyRows(data.shopify_country_daily, comparisonWindow().start, comparisonWindow().end)
@@ -3095,6 +3120,7 @@ function renderOnsite(factRows, previousFact) {
     { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
     { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
     { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
+    metaAovColumn({ key: "meta_aov", label: "Meta AOV", deltaKey: "meta_aov_delta" }),
     { key: "onsite_roas", label: "站内ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "onsite_roas", ratio, "onsite_roas_delta"), summaryValue: (row) => row.onsite_roas, summaryFormat: ratio, num: true },
     { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
     { key: "shopify_orders", label: "订单", format: number, num: true },
@@ -3114,6 +3140,7 @@ function renderOnsite(factRows, previousFact) {
     { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
     { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
     { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
+    metaAovColumn({ key: "meta_aov", label: "Meta AOV", showDelta: false }),
     { key: "sales_gap", label: "销售差额", format: salesGapBadge, num: true },
     { key: "spend", label: "广告花费", format: money, num: true },
     { key: "onsite_roas", label: "站内ROAS", format: ratio, num: true },
@@ -3194,6 +3221,7 @@ function render() {
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share, summaryFormat: pct, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
@@ -3206,6 +3234,7 @@ function render() {
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3223,6 +3252,7 @@ function render() {
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3244,7 +3274,7 @@ function render() {
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "销售占比", format: pct, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    { key: "aov", label: "客单", value: (row) => row, format: (row) => metricWithDelta(row, "aov", money, "aov_delta"), summaryValue: (row) => row.aov, summaryFormat: money, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
@@ -3279,6 +3309,7 @@ function render() {
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "roas", label: "ROI", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "purchase_times", label: "转化数", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
     { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
   ], 120, { previousSummaryRows: aggregate(previousAdRows, creativeProductDims).map((row) => {
@@ -3298,6 +3329,7 @@ function render() {
     { key: "spend", label: "广告花费", format: money, num: true },
     { key: "purchase_value", label: "归因收入", format: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
+    metaAovColumn({ showDelta: false }),
     { key: "roas", label: "ROAS", format: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3315,6 +3347,7 @@ function render() {
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3327,6 +3360,7 @@ function render() {
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3351,6 +3385,7 @@ function render() {
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3363,6 +3398,7 @@ function render() {
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3375,6 +3411,7 @@ function render() {
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
@@ -3387,6 +3424,7 @@ function render() {
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
