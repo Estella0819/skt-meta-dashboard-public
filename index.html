@@ -84,11 +84,6 @@
           <button type="button" class="multi-trigger" id="productFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="productFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="productLine" data-views="product,creative">
-          <span class="filter-label">产品线</span>
-          <button type="button" class="multi-trigger" id="productLineFilterButton" aria-expanded="false">全部</button>
-          <div class="multi-panel" id="productLineFilterPanel"></div>
-        </div>
         <div class="multi-select" data-filter="productForm" data-views="product,creative">
           <span class="filter-label">单品/套组</span>
           <button type="button" class="multi-trigger" id="productFormFilterButton" aria-expanded="false">全部</button>
@@ -187,7 +182,7 @@
           <article class="panel trend-panel">
             <header>
               <h3>产品趋势</h3>
-              <span class="panel-note">广告投放端趋势，跟随产品线 / 单品套组筛选</span>
+              <span class="panel-note">广告投放端趋势，跟随产品 / 单品套组筛选</span>
             </header>
             <div class="trend-body">
               <div id="productTrend" class="chart"></div>
@@ -205,11 +200,11 @@
         <section class="split-grid">
           <article class="panel">
             <header>
-              <h3>产品线整体表现</h3>
-              <span class="panel-note">按产品线汇总；点击产品线可筛选全页</span>
+              <h3>产品名称整体表现</h3>
+              <span class="panel-note">按产品名称汇总；点击产品名称可筛选全页</span>
             </header>
             <div class="table-wrap compact">
-              <table id="productLineTable"></table>
+              <table id="productNameTable"></table>
             </div>
           </article>
           <article class="panel">
@@ -225,14 +220,14 @@
         <section class="split-grid">
           <article class="panel">
             <header>
-              <h3>产品线占比匹配</h3>
-              <span class="panel-note">归因收入占比 vs 花费占比，判断产品线是否跑赢投放</span>
+              <h3>产品占比匹配</h3>
+              <span class="panel-note">归因收入占比 vs 花费占比，判断产品是否跑赢投放</span>
             </header>
-            <div id="productLineShareBars" class="compare-bars"></div>
+            <div id="productNameShareBars" class="compare-bars"></div>
           </article>
           <article class="panel">
             <header>
-              <h3>产品线 x 国家热力</h3>
+              <h3>产品 x 国家热力</h3>
               <span class="panel-note">颜色按 ROAS，数值显示 归因收入</span>
             </header>
             <div id="productCountryHeatmap" class="heatmap"></div>
@@ -241,7 +236,7 @@
         <section class="split-grid">
           <article class="panel">
             <header>
-              <h3>产品线 x 国家</h3>
+              <h3>产品 x 国家</h3>
               <span class="panel-note">按 归因收入 排序；国家作为下钻维度</span>
             </header>
             <div class="table-wrap">
@@ -250,8 +245,8 @@
           </article>
           <article class="panel">
             <header>
-              <h3>产品线 x 素材类型</h3>
-              <span class="panel-note">看各产品线适合图文、视频、合创或视频来源</span>
+              <h3>产品 x 素材类型</h3>
+              <span class="panel-note">看各产品适合图文、视频、合创或视频来源</span>
             </header>
             <div class="table-wrap">
               <table id="productMaterialTypeTable"></table>
@@ -261,7 +256,7 @@
         <article class="panel">
           <header>
             <h3>标准产品表现</h3>
-            <span class="panel-note">使用你确认后的标准产品名，并保留产品线和单品/套组标签</span>
+            <span class="panel-note">使用你确认后的标准产品名</span>
           </header>
           <div class="table-wrap">
             <table id="standardProductTable"></table>
