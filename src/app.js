@@ -40,6 +40,7 @@ const state = {
   compareStartDate: "",
   compareEndDate: "",
   trendMetric: "spend",
+  attributionMetric: "platform_value",
 };
 
 const pendingTime = {
@@ -57,11 +58,13 @@ const titles = {
   creative: ["素材", "高花费、高回报和风险素材分层"],
   operator: ["投手", "投手、产品和国家组合表现"],
   landing: ["落地页", "活动专题页、详情页和集合页承接表现"],
-  onsite: ["站内", "Meta 投放与 Shopify 实际销售承接"],
+  onsite: ["站内", "广告投放与 Shopify 实际销售承接"],
+  attribution: ["归因", "渠道投放、Shopify 承接与数据可用性"],
   channels: ["三渠道", "美国 Shopify、Amazon 和 TikTok 销售趋势"],
 };
 
 const metricLabels = {
+  value: "指标",
   spend: "花费",
   purchase_value: "销售额",
   purchase_times: "转化数",
@@ -451,6 +454,24 @@ function comparisonRows(source) {
   return rowsForWindow(source, period.start, period.end);
 }
 
+function isMetaAdRow(row) {
+  return row.operator === "Meta" || row.material_type === "Meta";
+}
+
+function viewUsesMetaOnlyAds() {
+  return ["product", "country", "creative", "operator"].includes(state.view);
+}
+
+function pageFactRows(source = data.fact) {
+  const rows = filteredRows(source);
+  return viewUsesMetaOnlyAds() ? rows.filter(isMetaAdRow) : rows;
+}
+
+function pageComparisonRows(source = data.fact) {
+  const rows = comparisonRows(source);
+  return viewUsesMetaOnlyAds() ? rows.filter(isMetaAdRow) : rows;
+}
+
 function materialInventoryRowsForWindow(source = data.material_inventory, start = state.startDate, end = state.endDate) {
   return (source || []).map((row) => ({
     ...row,
@@ -751,7 +772,10 @@ function initFilters() {
   const productLines = [...new Set(data.fact.map((row) => row.product_line || "其他"))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   const productForms = [...new Set(data.fact.map((row) => row.product_form || "待确认"))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   const operators = [...new Set(data.fact.map((row) => row.operator || "Unknown"))].sort();
-  const channels = [...new Set((data.us_channel_product_daily || []).map((row) => row.channel || "Unknown"))].sort();
+  const channels = [...new Set([
+    ...(data.us_channel_product_daily || []).map((row) => row.channel || "Unknown"),
+    ...(data.attribution_channel || []).map((row) => row.channel || "Unknown"),
+  ])].sort();
   const landingTypes = ["集合页", "活动专题页", "详情页"].filter((value) => data.fact.some((row) => landingPageType(row) === value));
   const materialTypes = ["图文", "视频", "合创"].filter((value) => data.fact.some((row) => row.material_type === value));
   const videoSources = ["自产素材", "TT搬运"].filter((value) => data.fact.some((row) => row.video_source === value));
@@ -1019,13 +1043,13 @@ function renderActionInsights(fact, previousFact, context = {}) {
       {
         label: "站内效率",
         title: `站内ROAS ${ratio(onsiteRoas)}`,
-        body: `对比 ${deltaText(onsiteRoas, previousOnsiteRoas).text}，口径为 Shopify Net Sales / Meta 花费。`,
+        body: `对比 ${deltaText(onsiteRoas, previousOnsiteRoas).text}，口径为 Shopify Net Sales / 广告花费。`,
         tone: insightTone(deltaValue(onsiteRoas, previousOnsiteRoas)),
       },
       {
         label: "占比偏差",
         title: onsiteMismatch ? `${onsiteMismatch.product_name} ${pct(onsiteMismatch.share_gap)}` : "暂无占比偏差",
-        body: onsiteMismatch ? `站内销售占比 ${pct(onsiteMismatch.shopify_sales_share)}，Meta花费占比 ${pct(onsiteMismatch.meta_spend_share)}。` : "当前筛选下站内销售与投放占比比较接近。",
+        body: onsiteMismatch ? `站内销售占比 ${pct(onsiteMismatch.shopify_sales_share)}，广告花费占比 ${pct(onsiteMismatch.meta_spend_share)}。` : "当前筛选下站内销售与投放占比比较接近。",
         tone: onsiteMismatch && Math.abs(onsiteMismatch.share_gap) > 0.08 ? "negative" : "neutral",
       },
       {
@@ -1133,9 +1157,9 @@ function renderKpis(rows, previousRows, context = {}) {
     renderKpiItems([
       { label: "产品线数", value: productLineCount, previous: previousProductLineCount, format: number, hint: "按人工分类表" },
       { label: "标准产品数", value: standardProductCount, previous: previousStandardProductCount, format: number, hint: "人工建议名优先" },
-      { label: "主力产品线", value: topLine?.product_line || "-", note: topLine ? `GMV ${money(topLine.purchase_value)}` : "当前周期", format: String, hint: "按 Meta GMV" },
+      { label: "主力产品线", value: topLine?.product_line || "-", note: topLine ? `GMV ${money(topLine.purchase_value)}` : "当前周期", format: String, hint: "按 归因收入" },
       { label: "主力类型", value: topForm?.product_form || "-", note: topForm ? `ROAS ${ratio(topForm.roas)}` : "当前周期", format: String, hint: "单品/套组" },
-      { label: "Meta GMV", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
+      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
       { label: "CVR", value: summary.cvr, previous: previous.cvr, format: pct, hint: "转化 / 点击" },
     ]);
     return;
@@ -1146,8 +1170,8 @@ function renderKpis(rows, previousRows, context = {}) {
       .filter((row) => row.spend > 100 && row.roas < 1.3);
     renderKpiItems([
       { label: "素材数", value: materialCount, previous: previousMaterialCount, format: number, hint: "唯一素材名/编号" },
-      { label: "素材花费", value: summary.spend, previous: previous.spend, format: money, hint: "Meta 花费" },
-      { label: "Meta GMV", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
+      { label: "素材花费", value: summary.spend, previous: previous.spend, format: money, hint: "广告花费" },
+      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
       { label: "主要素材类型", value: topMaterial?.material_label || "-", note: topMaterial ? `花费占比 ${pct(topMaterial.spend_share)}` : "当前周期", format: String, hint: "按花费占比" },
       { label: "风险素材", value: riskRows.length, previous: undefined, format: number, hint: "花费>$100 且 ROAS<1.3", inverse: true },
       { label: "CVR", value: summary.cvr, previous: previous.cvr, format: pct, hint: "转化 / 点击" },
@@ -1158,10 +1182,10 @@ function renderKpis(rows, previousRows, context = {}) {
   if (state.view === "country") {
     renderKpiItems([
       { label: "国家数", value: countryCount, previous: previousCountryCount, format: number, hint: "当前筛选覆盖" },
-      { label: "最大国家", value: topCountry?.country || "-", note: topCountry ? `GMV ${money(topCountry.purchase_value)}` : "当前周期", format: String, hint: "按 Meta GMV" },
-      { label: "Meta GMV", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
-      { label: "Meta花费", value: summary.spend, previous: previous.spend, format: money, hint: `${number(summary.impressions)} 展示` },
-      { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "Meta GMV / 花费" },
+      { label: "最大国家", value: topCountry?.country || "-", note: topCountry ? `GMV ${money(topCountry.purchase_value)}` : "当前周期", format: String, hint: "按 归因收入" },
+      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
+      { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: `${number(summary.impressions)} 展示` },
+      { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "归因收入 / 花费" },
       { label: "CPA", value: summary.cpa, previous: previous.cpa, format: money, hint: "花费 / 转化", inverse: true },
     ]);
     return;
@@ -1171,9 +1195,9 @@ function renderKpis(rows, previousRows, context = {}) {
     renderKpiItems([
       { label: "投手数", value: operatorCount, previous: previousOperatorCount, format: number, hint: "当前筛选覆盖" },
       { label: "主要投手", value: topOperator?.operator || "-", note: topOperator ? `花费 ${money(topOperator.spend)}` : "当前周期", format: String, hint: "按花费" },
-      { label: "Meta花费", value: summary.spend, previous: previous.spend, format: money, hint: "投手投放规模" },
-      { label: "Meta GMV", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
-      { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "Meta GMV / 花费" },
+      { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: "投手投放规模" },
+      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
+      { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "归因收入 / 花费" },
       { label: "CPA", value: summary.cpa, previous: previous.cpa, format: money, hint: "花费 / 转化", inverse: true },
     ]);
     return;
@@ -1188,9 +1212,9 @@ function renderKpis(rows, previousRows, context = {}) {
     renderKpiItems([
       { label: "落地页类型", value: landingTypes, previous: previousLandingTypes, format: number, hint: "集合页/详情页/活动页" },
       { label: "主要承接", value: topLanding?.landing_type || "-", note: topLanding ? `花费占比 ${pct(summary.spend ? topLanding.spend / summary.spend : 0)}` : "当前周期", format: String, hint: "按花费" },
-      { label: "Meta花费", value: summary.spend, previous: previous.spend, format: money, hint: "落地页消耗" },
-      { label: "Meta GMV", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
-      { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "Meta GMV / 花费" },
+      { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: "落地页消耗" },
+      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
+      { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "归因收入 / 花费" },
       { label: "CVR", value: summary.cvr, previous: previous.cvr, format: pct, hint: "转化 / 点击" },
     ]);
     return;
@@ -1205,8 +1229,8 @@ function renderKpis(rows, previousRows, context = {}) {
     renderKpiItems([
       { label: "Shopify净销售", value: shopify.net_sales, previous: previousShopify.net_sales, format: money, hint: "站内 Net Sales" },
       { label: "Shopify订单", value: shopify.orders, previous: previousShopify.orders, format: number, hint: "订单数" },
-      { label: "站内ROAS", value: onsiteRoas, previous: previousOnsiteRoas, format: ratio, hint: "Net Sales / Meta花费" },
-      { label: "Meta花费", value: summary.spend, previous: previous.spend, format: money, hint: "投放端消耗" },
+      { label: "站内ROAS", value: onsiteRoas, previous: previousOnsiteRoas, format: ratio, hint: "Net Sales / 广告花费" },
+      { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: "投放端消耗" },
       { label: "站内客单", value: shopify.aov, previous: previousShopify.aov, format: money, hint: "净销售 / 订单" },
       { label: "未匹配占比", value: shopify.net_sales ? unmatchedSales / shopify.net_sales : 0, previous: undefined, format: pct, hint: "需补映射", inverse: true },
     ]);
@@ -1238,11 +1262,11 @@ function renderKpis(rows, previousRows, context = {}) {
   }
 
   renderKpiItems([
-    { label: "Meta花费", value: summary.spend, previous: previous.spend, format: money, hint: `${number(summary.impressions)} 展示` },
-    { label: "Meta GMV", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
+    { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: `${number(summary.impressions)} 展示` },
+    { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
     { label: "产品数", value: productCount, previous: previousProductCount, format: number, hint: "当前筛选覆盖" },
-    { label: "最大产品", value: topProduct?.product_name || "-", note: topProduct ? `GMV ${money(topProduct.purchase_value)}` : "当前周期", format: String, hint: "按 Meta GMV" },
-    { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "Meta GMV / 花费" },
+    { label: "最大产品", value: topProduct?.product_name || "-", note: topProduct ? `GMV ${money(topProduct.purchase_value)}` : "当前周期", format: String, hint: "按 归因收入" },
+    { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "归因收入 / 花费" },
     { label: "CPA", value: summary.cpa, previous: previous.cpa, format: money, hint: "花费 / 转化", inverse: true },
   ]);
 }
@@ -1426,10 +1450,10 @@ function renderDualLineChart(id, rows, leftMetric, rightMetric) {
   }).join("");
   el.innerHTML = `
     <div class="dual-legend">
-      <span><i class="legend-dot meta-dot"></i>Meta GMV</span>
+      <span><i class="legend-dot meta-dot"></i>归因收入</span>
       <span><i class="legend-dot shopify-dot"></i>Shopify 净销售</span>
     </div>
-    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="Meta GMV 和 Shopify 净销售趋势">
+    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="归因收入 和 Shopify 净销售趋势">
       <g class="axis">${grid}${ticks}</g>
       <polyline class="line meta-line" points="${points(leftMetric)}"></polyline>
       <polyline class="line shopify-line" points="${points(rightMetric)}"></polyline>
@@ -1560,7 +1584,7 @@ function renderOnsiteTrendConclusion(rows) {
   const tone = ratioToMeta >= 1 ? "up" : "down";
   el.innerHTML = `
     <strong>站内趋势结论</strong>
-    <p>本周期 Shopify 净销售 / Meta GMV 为 <span class="${tone}">${ratio(ratioToMeta)}</span>，用于判断站内承接是否跟上投放端。</p>
+    <p>本周期 Shopify 净销售 / 归因收入 为 <span class="${tone}">${ratio(ratioToMeta)}</span>，用于判断站内承接是否跟上投放端。</p>
     <p>站内跑赢最明显是 ${escapeHtml(strongest.date_start)}，差额 ${money(strongest.gap)}；偏弱日期是 ${escapeHtml(weakest.date_start)}，差额 ${money(weakest.gap)}。</p>
   `;
 }
@@ -1830,7 +1854,7 @@ function renderQuadrantChart(id, rows, labelKey, options = {}) {
       <line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${y(avgRoas)}" y2="${y(avgRoas)}"></line>
       <line class="grid-line" x1="${x(avgSpend)}" x2="${x(avgSpend)}" y1="${pad.top}" y2="${height - pad.bottom}"></line>
       <text class="axis-label" x="${pad.left}" y="${pad.top - 8}">ROAS</text>
-      <text class="axis-label" x="${width - 95}" y="${height - 14}">Meta花费</text>
+      <text class="axis-label" x="${width - 95}" y="${height - 14}">广告花费</text>
       <text class="quadrant-label" x="${x(avgSpend) + 8}" y="${y(avgRoas) - 10}">高效放量</text>
       <text class="quadrant-label" x="${pad.left + 8}" y="${y(avgRoas) + 20}">低消观察</text>
       ${points}
@@ -1865,11 +1889,22 @@ function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
     return `<line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${yy}" y2="${yy}" />`;
   }).join("");
   const lines = categories.map((category, lineIndex) => {
-    const points = dates.map((date, index) => {
-      const row = byKey.get(`${date}||${category}`) || {};
-      return `${x(index)},${y(getMetric(row, metric))}`;
-    }).join(" ");
-    return `<polyline class="line" style="stroke:${palette[lineIndex % palette.length]}" points="${points}"></polyline>`;
+    const pointValues = dates.map((date, index) => {
+      const row = byKey.get(`${date}||${category}`);
+      if (options.missingAsGap && (!row || row[metric] === null || row[metric] === undefined)) return null;
+      return `${x(index)},${y(getMetric(row || {}, metric))}`;
+    });
+    const runs = options.missingAsGap
+      ? pointValues.reduce((groups, point) => {
+        if (point === null) {
+          if (groups[groups.length - 1]?.length) groups.push([]);
+        } else {
+          groups[groups.length - 1].push(point);
+        }
+        return groups;
+      }, [[]]).filter((group) => group.length)
+      : [pointValues];
+    return runs.map((points) => `<polyline class="line" style="stroke:${palette[lineIndex % palette.length]}" points="${points.join(" ")}"></polyline>`).join("");
   }).join("");
   el.innerHTML = `
     <div class="dual-legend">
@@ -2091,11 +2126,11 @@ function tableInsight(id, rows, summaryRows = rows) {
     }
     case "onsiteCountryTable": {
       const gap = [...rows].sort((a, b) => Math.abs(getMetric(b, "share_gap")) - Math.abs(getMetric(a, "share_gap")))[0];
-      return `站内净销售合计 ${money(summary.shopify_sales)}，Meta 花费合计 ${money(summary.spend)}。占比偏差最大的是 ${label(gap, ["country"])}，需判断是否加码或降投。`;
+      return `站内净销售合计 ${money(summary.shopify_sales)}，广告花费合计 ${money(summary.spend)}。占比偏差最大的是 ${label(gap, ["country"])}，需判断是否加码或降投。`;
     }
     case "onsiteProductComparisonTable": {
       const top = topBy("shopify_sales");
-      return `站内产品销售最高是 ${label(top, ["product_name"])}，净销售 ${money(top.shopify_sales)}。重点看净销售占比和 Meta 花费占比是否匹配。`;
+      return `站内产品销售最高是 ${label(top, ["product_name"])}，净销售 ${money(top.shopify_sales)}。重点看净销售占比和 广告花费占比是否匹配。`;
     }
     case "onsiteProductTable": {
       const top = topBy("shopify_sales");
@@ -2289,6 +2324,11 @@ function preserveScroll(callback) {
 }
 
 function renderContextFilters() {
+  if (state.view === "channels" || state.view === "attribution") {
+    const options = channelOptionsForView();
+    state.channel = state.channel.filter((value) => options.includes(value));
+    setMultiOptions("channel", options, state.channel);
+  }
   let visibleCount = 0;
   const hiddenActive = [];
   document.querySelectorAll(".context-filterbar .multi-select").forEach((el) => {
@@ -2636,9 +2676,9 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
 
   renderTable("productLineTable", lineRows, [
     { key: "product_line", label: "产品线", sticky: true, filterKey: "product_line", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "aov", label: "客单", value: (row) => row, format: (row) => metricWithDelta(row, "aov", money, "aov_delta"), summaryValue: (row) => row.aov, summaryFormat: money, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
@@ -2647,9 +2687,9 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
 
   renderTable("productFormTable", formRows, [
     { key: "product_form", label: "类型", sticky: true, filterKey: "product_form", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
@@ -2661,8 +2701,8 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
   renderTable("productCountryTable", productCountryRows, [
     { key: "product_line", label: "产品线", sticky: true, filterKey: "product_line", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "country", label: "国家", filterKey: "country" },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -2673,9 +2713,9 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
   renderTable("productMaterialTypeTable", productMaterialRows, [
     { key: "product_line", label: "产品线", sticky: true, filterKey: "product_line", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "material_type", label: "素材类型", filterKey: "material_type", format: (v) => `<span class="tag material-tag">${escapeHtml(v || "未分类")}</span>` },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
@@ -2686,9 +2726,9 @@ function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
     { key: "standard_product_name", label: "标准产品", sticky: true, filterKey: "standard_product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "product_line", label: "产品线", filterKey: "product_line", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "product_form", label: "单品/套组", filterKey: "product_form", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", format: pct, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
@@ -2749,6 +2789,208 @@ function renderChannels() {
   ], 160, { previousSummaryRows: previousProductRows });
 }
 
+function attributionRowsForWindow(rows) {
+  return (rows || []).filter((row) => row.date_start >= state.startDate && row.date_start <= state.endDate);
+}
+
+function attributionChannelSelected(channel) {
+  return !state.channel.length || state.channel.includes(channel);
+}
+
+function attributionChannelOptions() {
+  return [...new Set((data.attribution_channel || []).map((row) => row.channel || "Unknown"))].sort();
+}
+
+function channelOptionsForView() {
+  if (state.view === "attribution") return attributionChannelOptions();
+  return [...new Set((data.us_channel_product_daily || []).map((row) => row.channel || "Unknown"))].sort();
+}
+
+function evidenceBadge(value) {
+  const label = value || "待核";
+  const cls = label === "财务真值" || label === "可用"
+    ? "evidence-good"
+    : (label === "部分覆盖" || label === "质量待核" ? "evidence-warn" : "evidence-info");
+  return `<span class="evidence-badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function renderAttributionSourceHealth() {
+  const el = document.getElementById("attributionSourceHealth");
+  const order = ["Shopify", "Meta", "Google Ads", "GA4", "Snapchat"];
+  const rows = [...(data.attribution_source_health || [])].sort((a, b) => order.indexOf(a.source) - order.indexOf(b.source));
+  el.innerHTML = rows.map((row) => {
+    const tone = row.status === "可用" ? "health-good" : (["部分", "滞后"].includes(row.status) ? "health-warn" : "health-bad");
+    return `<article class="source-health-card ${tone}">
+      <div><strong>${escapeHtml(row.source)}</strong><span>${escapeHtml(row.status)}</span></div>
+      <p>${row.latest_date ? `更新至 ${escapeHtml(row.latest_date)}` : "暂无数据"} · ${escapeHtml(row.grain || "-")}</p>
+      <small>${escapeHtml(row.limitation || "")}</small>
+    </article>`;
+  }).join("") || `<p class="empty">暂无数据源状态。</p>`;
+}
+
+function renderAttributionKpis(rows) {
+  const optionalSum = (key) => {
+    const available = rows.filter((row) => row[key] !== null && row[key] !== undefined);
+    return available.length ? available.reduce((total, row) => total + getMetric(row, key), 0) : null;
+  };
+  const shopifySales = optionalSum("shopify_net_sales");
+  const shopifyOrders = optionalSum("shopify_orders");
+  const metaSpend = optionalSum("meta_spend");
+  const metaValue = optionalSum("meta_value");
+  const googleSpend = optionalSum("google_spend");
+  const googleValue = optionalSum("google_value");
+  const ga4Purchases = optionalSum("ga4_purchases");
+  const ga4Revenue = optionalSum("ga4_revenue");
+  const availability = (key) => `${rows.filter((row) => row[key] !== null && row[key] !== undefined).length}/${rows.length} 天`;
+  document.getElementById("attributionKpis").innerHTML = `
+    <article><span>Shopify 净销售</span><strong>${money(shopifySales)}</strong><small>${number(shopifyOrders)} 订单 · 财务真值 · 覆盖 ${availability("shopify_net_sales")}</small></article>
+    <article><span>广告花费 / 平台价值</span><strong>${money(metaSpend)} / ${money(metaValue)}</strong><small>平台 ROAS ${metaSpend ? ratio(metaValue / metaSpend) : "-"} · 覆盖 ${availability("meta_spend")}</small></article>
+    <article><span>Google Ads 花费 / 标准价值</span><strong>${money(googleSpend)} / ${money(googleValue)}</strong><small>平台 ROAS ${googleSpend ? ratio(googleValue / googleSpend) : "-"} · 覆盖 ${availability("google_spend")}</small></article>
+    <article><span>GA4 购买 / 行为收入</span><strong>${number(ga4Purchases)} / ${money(ga4Revenue)}</strong><small>行为佐证 · 覆盖 ${availability("ga4_revenue")}</small></article>`;
+}
+
+function renderAttributionTrend(rows, channelRows) {
+  const series = [];
+  if (state.channel.length) {
+    const metricKey = {
+      platform_value: "platform_value",
+      spend: "spend",
+      purchases: "platform_purchases",
+      shopify_net_sales: "shopify_revenue",
+    }[state.attributionMetric];
+    channelRows.forEach((row) => {
+      if (!attributionChannelSelected(row.channel)) return;
+      if (state.attributionMetric === "shopify_net_sales" && row.channel !== "Shopify 总站") return;
+      if (row[metricKey] === null || row[metricKey] === undefined) return;
+      series.push({ date_start: row.date_start, series: row.channel, value: row[metricKey] });
+    });
+    renderCategoryLineChart("attributionTrend", series, "series", "value", { limit: 4, missingAsGap: true });
+    return;
+  }
+  const add = (row, label, key) => {
+    if (row[key] !== null && row[key] !== undefined && attributionChannelSelected(label)) {
+      series.push({ date_start: row.date_start, series: label, value: row[key] });
+    }
+  };
+  rows.forEach((row) => {
+    if (state.attributionMetric === "platform_value") {
+      add(row, "Meta", "meta_value");
+      add(row, "Google Ads", "google_value");
+    } else if (state.attributionMetric === "spend") {
+      add(row, "Meta", "meta_spend");
+      add(row, "Google Ads", "google_spend");
+    } else if (state.attributionMetric === "purchases") {
+      add(row, "Meta", "meta_purchases");
+      add(row, "Google Ads", "google_purchases");
+    } else {
+      add(row, "Shopify 总站", "shopify_net_sales");
+    }
+  });
+  renderCategoryLineChart("attributionTrend", series, "series", "value", { limit: 4, missingAsGap: true });
+}
+
+function aggregateAttributionChannels(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    if (!attributionChannelSelected(row.channel)) return;
+    const current = groups.get(row.channel) || {
+      channel: row.channel, metric_basis: row.metric_basis, spend: 0, platform_purchases: 0,
+      platform_value: 0, shopify_revenue: 0, coverage_sum: 0, coverage_count: 0,
+      evidence_level: row.evidence_level, quality_flag: row.quality_flag || "",
+      seen: {},
+    };
+    ["spend", "platform_purchases", "platform_value", "shopify_revenue"].forEach((key) => {
+      if (row[key] !== null && row[key] !== undefined) {
+        current[key] += getMetric(row, key);
+        current.seen[key] = true;
+      }
+    });
+    if (row.coverage_pct !== null && row.coverage_pct !== undefined) {
+      current.coverage_sum += getMetric(row, "coverage_pct");
+      current.coverage_count += 1;
+    }
+    if (row.evidence_level === "部分覆盖" || row.evidence_level === "质量待核") current.evidence_level = row.evidence_level;
+    if (row.quality_flag) current.quality_flag = row.quality_flag;
+    groups.set(row.channel, current);
+  });
+  return [...groups.values()].map((row) => ({
+    ...row,
+    spend: row.seen.spend ? row.spend : null,
+    platform_purchases: row.seen.platform_purchases ? row.platform_purchases : null,
+    platform_value: row.seen.platform_value ? row.platform_value : null,
+    shopify_revenue: row.seen.shopify_revenue ? row.shopify_revenue : null,
+    platform_roas: row.seen.spend && row.seen.platform_value && row.spend ? row.platform_value / row.spend : null,
+    coverage_pct: row.coverage_count ? row.coverage_sum / row.coverage_count : null,
+  })).sort((a, b) => b.spend - a.spend || b.platform_value - a.platform_value);
+}
+
+function renderAttributionCoverage(rows) {
+  const el = document.getElementById("attributionCoverage");
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">暂无覆盖率数据。</p>`;
+    return;
+  }
+  const sum = (key) => rows.reduce((total, row) => total + getMetric(row, key), 0);
+  const optionalSum = (key) => {
+    const available = rows.filter((row) => row[key] !== null && row[key] !== undefined);
+    return available.length ? available.reduce((total, row) => total + getMetric(row, key), 0) : null;
+  };
+  const rawSpend = sum("raw_meta_spend");
+  const rawValue = sum("raw_meta_value");
+  const items = [
+    { label: "广告花费对账覆盖", value: rawSpend ? sum("recon_meta_spend") / rawSpend : null, threshold: 0.95 },
+    { label: "归因收入 对账覆盖", value: rawValue ? sum("recon_meta_value") / rawValue : null, threshold: 0.95 },
+  ];
+  const coverageHtml = items.map((item) => {
+    const value = item.value;
+    const width = value === null ? 0 : Math.min(Math.max(value * 100, 0), 100);
+    const tone = value !== null && value >= item.threshold ? "coverage-good" : "coverage-risk";
+    return `<div class="coverage-item ${tone}"><div><span>${escapeHtml(item.label)}</span><strong>${pct(value)}</strong></div>
+      <div class="coverage-track"><i style="width:${width}%"></i></div>
+      <small>${value !== null && value >= item.threshold ? "可用于方向性对账" : "覆盖不足，禁止推导全量渠道贡献"}</small></div>`;
+  }).join("");
+  const comparableShopify = optionalSum("shopify_net_sales");
+  const reconShopify = optionalSum("recon_shopify_gmv");
+  const difference = comparableShopify !== null && reconShopify !== null ? reconShopify - comparableShopify : null;
+  const shopifyComparison = `<div class="coverage-item coverage-definition">
+    <div><span>Shopify 主日表净销售</span><strong>${money(comparableShopify)}</strong></div>
+    <div><span>对账视图 Shopify GMV</span><strong>${money(reconShopify)}</strong></div>
+    <small>差额 ${money(difference)} · 不同口径，不计算覆盖率</small>
+  </div>`;
+  el.innerHTML = `${coverageHtml}${shopifyComparison}`;
+}
+
+function renderAttributionIssues() {
+  const rows = data.attribution_issues || [];
+  document.getElementById("attributionIssues").innerHTML = rows.map((row) => `
+    <article class="issue-card issue-${escapeHtml(row.severity || "medium")}">
+      <div><span>${row.severity === "high" ? "高优先级" : "待处理"}</span><strong>${escapeHtml(row.title)}</strong></div>
+      <p>${escapeHtml(row.impact)}</p>
+      <small><b>暂停输出：</b>${escapeHtml(row.blocked_output)}<br><b>下一步：</b>${escapeHtml(row.action)}</small>
+    </article>`).join("") || `<p class="empty">暂无待处理问题。</p>`;
+}
+
+function renderAttribution() {
+  const dailyRows = attributionRowsForWindow(data.attribution_daily || []);
+  const channelRows = attributionRowsForWindow(data.attribution_channel || []);
+  const coverageRows = attributionRowsForWindow(data.attribution_coverage_daily || []);
+  renderAttributionSourceHealth();
+  renderAttributionKpis(dailyRows);
+  renderAttributionTrend(dailyRows, channelRows);
+  renderAttributionCoverage(coverageRows);
+  renderTable("attributionChannelTable", aggregateAttributionChannels(channelRows), [
+    { key: "channel", label: "渠道", sticky: true, filterKey: "channel" },
+    { key: "metric_basis", label: "口径" },
+    { key: "spend", label: "花费", format: money, num: true },
+    { key: "platform_value", label: "平台归因值", format: money, num: true },
+    { key: "platform_roas", label: "平台 ROAS", format: ratio, num: true },
+    { key: "shopify_revenue", label: "Shopify 承接", format: money, num: true },
+    { key: "coverage_pct", label: "覆盖率", format: pct, num: true },
+    { key: "evidence_level", label: "证据等级", value: (row) => row, format: (row) => `${evidenceBadge(row.evidence_level)}${row.quality_flag ? `<small class="evidence-note">${escapeHtml(row.quality_flag)}</small>` : ""}` },
+  ], 40);
+  renderAttributionIssues();
+}
+
 function renderOnsiteSummary(factRows, shopifyRows, previousFact, previousShopify) {
   const meta = summaryOf(factRows);
   const period = comparisonWindow();
@@ -2784,9 +3026,9 @@ function renderOnsiteSummary(factRows, shopifyRows, previousFact, previousShopif
       <small>AOV ${money(shopify.aov)}</small>
     </article>
     <article>
-      <span>Meta 与站内差额</span>
+      <span>归因与站内差额</span>
       <strong>${money(getMetric(shopify, "net_sales") - meta.purchase_value)}</strong>
-      <small>Meta GMV ${money(meta.purchase_value)} / Shopify净销售 ${money(shopify.net_sales)}</small>
+      <small>归因收入 ${money(meta.purchase_value)} / Shopify净销售 ${money(shopify.net_sales)}</small>
     </article>
     <article>
       <span>产品匹配覆盖</span>
@@ -2826,7 +3068,7 @@ function renderOnsite(factRows, previousFact) {
     valueKey: "shopify_sales",
     spendShareKey: "meta_spend_share",
     salesShareKey: "shopify_sales_share",
-    spendLabel: "Meta花费",
+    spendLabel: "广告花费",
     salesLabel: "净销售",
     valueFormat: money,
     limit: 6,
@@ -2836,14 +3078,14 @@ function renderOnsite(factRows, previousFact) {
     { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
     { key: "shopify_sales", label: "Shopify净销售", format: money, num: true },
     { key: "shopify_sales_share", label: "净销售占比", format: pct, num: true },
-    { key: "meta_spend_share", label: "Meta花费占比", format: pct, num: true },
+    { key: "meta_spend_share", label: "广告花费占比", format: pct, num: true },
     { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
     { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
-    { key: "meta_purchase_value", label: "Meta GMV", format: money, num: true },
+    { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
     { key: "sales_gap", label: "销售差额", format: salesGapBadge, num: true },
-    { key: "spend", label: "Meta花费", format: money, num: true },
+    { key: "spend", label: "广告花费", format: money, num: true },
     { key: "onsite_roas", label: "站内ROAS", format: ratio, num: true },
-    { key: "meta_roas", label: "Meta ROAS", format: ratio, num: true },
+    { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
     { key: "shopify_orders", label: "订单", format: number, num: true },
     { key: "shopify_net_items_sold", label: "净销量", format: number, num: true },
     { key: "shopify_aov", label: "AOV", format: money, num: true },
@@ -2859,7 +3101,7 @@ function renderOnsite(factRows, previousFact) {
     valueKey: "shopify_sales",
     spendShareKey: "meta_spend_share",
     salesShareKey: "shopify_sales_share",
-    spendLabel: "Meta花费",
+    spendLabel: "广告花费",
     salesLabel: "净销售",
     valueFormat: money,
     limit: 6,
@@ -2869,13 +3111,13 @@ function renderOnsite(factRows, previousFact) {
     { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
     { key: "shopify_sales", label: "Shopify净销售", value: (row) => row, format: (row) => metricWithDelta(row, "shopify_sales", money, "shopify_sales_delta"), summaryValue: (row) => row.shopify_sales, summaryFormat: money, num: true },
     { key: "shopify_sales_share", label: "净销售占比", format: pct, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "meta_spend_share", label: "花费占比", format: pct, num: true },
     { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
     { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
-    { key: "meta_purchase_value", label: "Meta GMV", format: money, num: true },
+    { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
     { key: "onsite_roas", label: "站内ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "onsite_roas", ratio, "onsite_roas_delta"), summaryValue: (row) => row.onsite_roas, summaryFormat: ratio, num: true },
-    { key: "meta_roas", label: "Meta ROAS", format: ratio, num: true },
+    { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
     { key: "shopify_orders", label: "订单", format: number, num: true },
     { key: "shopify_net_items_sold", label: "净销量", format: number, num: true },
   ], 80, { previousSummaryRows: previousProductComparisonRows });
@@ -2889,14 +3131,14 @@ function renderOnsite(factRows, previousFact) {
     { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
     { key: "shopify_sales", label: "Shopify净销售", format: money, num: true },
     { key: "shopify_sales_share", label: "净销售占比", format: pct, num: true },
-    { key: "meta_spend_share", label: "Meta花费占比", format: pct, num: true },
+    { key: "meta_spend_share", label: "广告花费占比", format: pct, num: true },
     { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
     { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
-    { key: "meta_purchase_value", label: "Meta GMV", format: money, num: true },
+    { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
     { key: "sales_gap", label: "销售差额", format: salesGapBadge, num: true },
-    { key: "spend", label: "Meta花费", format: money, num: true },
+    { key: "spend", label: "广告花费", format: money, num: true },
     { key: "onsite_roas", label: "站内ROAS", format: ratio, num: true },
-    { key: "meta_roas", label: "Meta ROAS", format: ratio, num: true },
+    { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
     { key: "shopify_orders", label: "订单", format: number, num: true },
     { key: "shopify_net_items_sold", label: "净销量", format: number, num: true },
   ], 160, {
@@ -2934,9 +3176,13 @@ function render() {
   document.getElementById(`${state.view}View`).classList.remove("hidden");
   renderContextFilters();
   renderPeriodHint();
+  const attributionOnly = state.view === "attribution";
+  ["insightSummary", "kpis", "comparison", "actionInsights"].forEach((id) => {
+    document.getElementById(id).classList.toggle("hidden", attributionOnly);
+  });
 
-  const fact = filteredRows(data.fact);
-  const previousFact = comparisonRows(data.fact);
+  const fact = pageFactRows(data.fact);
+  const previousFact = pageComparisonRows(data.fact);
   const adRows = filteredRows(data.ads || []).map((row) => ({ ...row, video_source: row.video_source || "", material_name: materialName(row) }));
   const previousAdRows = comparisonRows(data.ads || []).map((row) => ({ ...row, video_source: row.video_source || "", material_name: materialName(row) }));
   const materialInventoryRows = filteredMaterialInventoryRows();
@@ -2964,9 +3210,9 @@ function render() {
   renderTable("regionTable", regions, [
     { key: "region", label: "地区", sticky: true, filterKey: "region", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "country_count", label: "国家数", value: (row) => row, format: (row) => metricWithDelta(row, "country_count", number, "country_count_delta"), summaryValue: (row) => row.country_count, summaryFormat: number, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share, summaryFormat: pct, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
@@ -2978,8 +3224,8 @@ function render() {
   const countries = addComparison(aggregate(fact, ["country"]), previousFact, ["country"]).sort((a, b) => b.purchase_value - a.purchase_value);
   renderTable("countryTable", countries, [
     { key: "country", label: "国家", sticky: true, filterKey: "country" },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -2995,8 +3241,8 @@ function render() {
   renderTable("countryProductTable", countryProductRows, [
     { key: "country", label: "国家", sticky: true, filterKey: "country" },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -3014,9 +3260,9 @@ function render() {
     { key: "material_type", label: "归类", filterKey: "material_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "video_source", label: "视频来源", filterKey: "video_source", format: (v) => v ? `<span class="tag">${escapeHtml(v)}</span>` : "-" },
     { key: "material_count", label: "素材数", value: (row) => row, format: (row) => metricWithDelta(row, "material_count", number, "material_count_delta"), summaryValue: (row) => row.material_count, summaryFormat: number, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "spend_share", label: "花费占比", format: pct, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "销售占比", format: pct, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "aov", label: "客单", value: (row) => row, format: (row) => metricWithDelta(row, "aov", money, "aov_delta"), summaryValue: (row) => row.aov, summaryFormat: money, num: true },
@@ -3050,8 +3296,8 @@ function render() {
     { key: "material_type", label: "类型", filterKey: "material_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "video_source", label: "视频来源", filterKey: "video_source", format: (v) => v ? `<span class="tag">${escapeHtml(v)}</span>` : "-" },
     { key: "material_count", label: "素材数", value: (row) => row, format: (row) => metricWithDelta(row, "material_count", number, "material_count_delta"), summaryValue: (row) => row.material_count, summaryFormat: number, num: true },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "roas", label: "ROI", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "purchase_times", label: "转化数", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
@@ -3070,8 +3316,8 @@ function render() {
     { key: "video_source", label: "视频来源", filterKey: "video_source", format: (v) => v ? `<span class="tag">${escapeHtml(v)}</span>` : "-" },
     { key: "operator", label: "投手", filterKey: "operator" },
     { key: "country", label: "国家", filterKey: "country" },
-    { key: "spend", label: "Meta花费", format: money, num: true },
-    { key: "purchase_value", label: "Meta GMV", format: money, num: true },
+    { key: "spend", label: "广告花费", format: money, num: true },
+    { key: "purchase_value", label: "归因收入", format: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
     { key: "roas", label: "ROAS", format: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -3087,8 +3333,8 @@ function render() {
   renderTable("operatorProductTable", opProductRows, [
     { key: "operator", label: "投手", sticky: true, filterKey: "operator" },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -3099,8 +3345,8 @@ function render() {
   renderTable("operatorCountryTable", opCountryRows, [
     { key: "operator", label: "投手", sticky: true, filterKey: "operator" },
     { key: "country", label: "国家", filterKey: "country" },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -3121,9 +3367,9 @@ function render() {
   renderCategoryLineChart("landingTypeTrend", aggregate(landingRows, ["date_start", "landing_type"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start))), "landing_type", "purchase_value", { limit: 3 });
   renderTable("landingTypeTable", landingTypeComparisonRows, [
     { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
@@ -3135,8 +3381,8 @@ function render() {
   renderTable("landingProductTable", landingProductRows, [
     { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -3147,8 +3393,8 @@ function render() {
   renderTable("landingCountryTable", landingCountryRows, [
     { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "country", label: "国家", filterKey: "country" },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -3159,8 +3405,8 @@ function render() {
   renderTable("landingMaterialTable", landingMaterialRows, [
     { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "material_name", label: "素材", name: true, format: (v) => `<span class="tag material-tag">${escapeHtml(v)}</span>` },
-    { key: "spend", label: "Meta花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "Meta GMV", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
@@ -3168,6 +3414,7 @@ function render() {
     { key: "cvr", label: "CVR", format: pct, num: true },
   ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "material_name"]) });
   renderOnsite(fact, previousFact);
+  renderAttribution();
   renderChannels();
   bindContentFilters();
 }
@@ -3290,6 +3537,10 @@ function bindEvents() {
   });
   document.getElementById("trendMetric").addEventListener("change", (event) => {
     state.trendMetric = event.target.value;
+    preserveScroll(render);
+  });
+  document.getElementById("attributionTrendMetric").addEventListener("change", (event) => {
+    state.attributionMetric = event.target.value;
     preserveScroll(render);
   });
   document.getElementById("resetFilters").addEventListener("click", () => {

@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Meta 投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260706-kpi-mapping-review" />
+    <title>广告投放看板</title>
+    <link rel="stylesheet" href="./src/styles.css?v=20260713-attribution" />
   </head>
   <body>
     <header class="topbar">
@@ -12,7 +12,7 @@
         <div class="brand">
           <div class="brand-mark">M</div>
           <div>
-            <h1>Meta 投放看板</h1>
+            <h1>广告投放看板</h1>
             <p><span id="dateRange">加载中</span><span class="dot"></span><span id="generatedAt">BigQuery</span></p>
           </div>
         </div>
@@ -24,6 +24,7 @@
           <button class="tab" data-view="operator">投手</button>
           <button class="tab" data-view="landing">落地页</button>
           <button class="tab" data-view="onsite">站内</button>
+          <button class="tab" data-view="attribution">归因</button>
           <button class="tab" data-view="channels">三渠道</button>
         </nav>
       </div>
@@ -98,7 +99,7 @@
           <button type="button" class="multi-trigger" id="landingTypeFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="landingTypeFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="channel" data-views="channels">
+        <div class="multi-select" data-filter="channel" data-views="channels,attribution">
           <span class="filter-label">渠道</span>
           <button type="button" class="multi-trigger" id="channelFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="channelFilterPanel"></div>
@@ -153,14 +154,14 @@
           <article class="panel">
             <header>
               <h3>国家排行</h3>
-              <span class="panel-note">按 Meta GMV 排名；筛选产品后展示该产品各国家表现</span>
+              <span class="panel-note">按 归因收入 排名；筛选产品后展示该产品各国家表现</span>
             </header>
             <div id="countryBars" class="bars"></div>
           </article>
           <article class="panel">
             <header>
               <h3>产品排行</h3>
-              <span class="panel-note">按 Meta GMV 排名，不是按花费</span>
+              <span class="panel-note">按 归因收入 排名，不是按花费</span>
             </header>
             <div id="productBars" class="bars"></div>
           </article>
@@ -174,7 +175,7 @@
           <article class="panel">
             <header>
               <h3>投手排行</h3>
-              <span class="panel-note">按 Meta 花费排名</span>
+              <span class="panel-note">按 广告花费排名</span>
             </header>
             <div id="overviewOperatorBars" class="bars"></div>
           </article>
@@ -186,7 +187,7 @@
           <article class="panel trend-panel">
             <header>
               <h3>产品趋势</h3>
-              <span class="panel-note">Meta 投放端趋势，跟随产品线 / 单品套组筛选</span>
+              <span class="panel-note">广告投放端趋势，跟随产品线 / 单品套组筛选</span>
             </header>
             <div class="trend-body">
               <div id="productTrend" class="chart"></div>
@@ -196,7 +197,7 @@
           <article class="panel">
             <header>
               <h3>单品/套组结构</h3>
-              <span class="panel-note">按 Meta GMV 占比展示</span>
+              <span class="panel-note">按 归因收入 占比展示</span>
             </header>
             <div id="productFormDonut" class="donut-card single-donut"></div>
           </article>
@@ -225,14 +226,14 @@
           <article class="panel">
             <header>
               <h3>产品线占比匹配</h3>
-              <span class="panel-note">Meta GMV占比 vs 花费占比，判断产品线是否跑赢投放</span>
+              <span class="panel-note">归因收入占比 vs 花费占比，判断产品线是否跑赢投放</span>
             </header>
             <div id="productLineShareBars" class="compare-bars"></div>
           </article>
           <article class="panel">
             <header>
               <h3>产品线 x 国家热力</h3>
-              <span class="panel-note">颜色按 ROAS，数值显示 Meta GMV</span>
+              <span class="panel-note">颜色按 ROAS，数值显示 归因收入</span>
             </header>
             <div id="productCountryHeatmap" class="heatmap"></div>
           </article>
@@ -241,7 +242,7 @@
           <article class="panel">
             <header>
               <h3>产品线 x 国家</h3>
-              <span class="panel-note">按 Meta GMV 排序；国家作为下钻维度</span>
+              <span class="panel-note">按 归因收入 排序；国家作为下钻维度</span>
             </header>
             <div class="table-wrap">
               <table id="productCountryTable"></table>
@@ -293,7 +294,7 @@
         <article class="panel">
           <header>
             <h3>国家 x 产品热力</h3>
-            <span class="panel-note">颜色按 ROAS，数值显示 Meta GMV；点击国家或产品继续筛选</span>
+            <span class="panel-note">颜色按 ROAS，数值显示 归因收入；点击国家或产品继续筛选</span>
           </header>
           <div id="countryProductHeatmap" class="heatmap"></div>
         </article>
@@ -318,7 +319,7 @@
         <article class="panel">
           <header>
             <h3>素材类型对比</h3>
-            <span class="panel-note">Meta 数据；视频含汇总，并拆分自产素材 / TT搬运；素材数按唯一素材名/编号</span>
+            <span class="panel-note">广告数据；视频含汇总，并拆分自产素材 / TT搬运；素材数按唯一素材名/编号</span>
           </header>
           <div class="viz-grid compact-viz">
             <div id="materialSpendDonut" class="donut-card"></div>
@@ -332,7 +333,7 @@
         <article class="panel">
           <header>
             <h3>产品 x 素材类型热力</h3>
-            <span class="panel-note">颜色按 ROAS，数值显示 Meta GMV；判断哪个产品适合哪类素材</span>
+            <span class="panel-note">颜色按 ROAS，数值显示 归因收入；判断哪个产品适合哪类素材</span>
           </header>
           <div id="creativeProductHeatmap" class="heatmap"></div>
         </article>
@@ -353,7 +354,7 @@
         <article class="panel">
           <header>
             <h3>产品 x 素材表现</h3>
-            <span class="panel-note">Meta 数据；看每个产品对应哪些素材类型和素材编号跑得好</span>
+            <span class="panel-note">广告数据；看每个产品对应哪些素材类型和素材编号跑得好</span>
           </header>
           <div class="table-wrap">
             <table id="creativeProductTable"></table>
@@ -382,7 +383,7 @@
           <article class="panel">
             <header>
               <h3>投手效率象限</h3>
-              <span class="panel-note">横轴花费，纵轴 ROAS，气泡大小代表 Meta GMV</span>
+              <span class="panel-note">横轴花费，纵轴 ROAS，气泡大小代表 归因收入</span>
             </header>
             <div id="operatorQuadrant" class="quadrant-chart"></div>
           </article>
@@ -440,7 +441,7 @@
         <article class="panel">
           <header>
             <h3>落地页类型趋势</h3>
-            <span class="panel-note">按日期观察集合页、详情页、活动页的 Meta GMV 变化</span>
+            <span class="panel-note">按日期观察集合页、详情页、活动页的 归因收入 变化</span>
           </header>
           <div id="landingTypeTrend" class="chart small"></div>
         </article>
@@ -488,7 +489,7 @@
         <section class="onsite-top">
           <article class="panel trend-panel onsite-trend-panel">
             <header>
-              <h3>Meta GMV vs Shopify 净销售趋势</h3>
+              <h3>归因收入 vs Shopify 净销售趋势</h3>
               <span class="panel-note">Shopify ROI 口径使用 net sales</span>
             </header>
             <div class="trend-body onsite-trend-body">
@@ -501,7 +502,7 @@
         <article class="panel">
           <header>
             <h3>国家承接：净销售占比 vs 花费占比</h3>
-            <span class="panel-note">看 Shopify net sales 占比是否跑赢 Meta 花费占比</span>
+            <span class="panel-note">看 Shopify net sales 占比是否跑赢 广告花费占比</span>
           </header>
           <div id="onsiteCountryShareBars" class="compare-bars"></div>
           <div class="table-wrap compact">
@@ -511,7 +512,7 @@
         <article class="panel">
           <header>
             <h3>产品承接总表</h3>
-            <span class="panel-note">Shopify net sales 占比 vs Meta 花费占比，按净销售额排序</span>
+            <span class="panel-note">Shopify net sales 占比 vs 广告花费占比，按净销售额排序</span>
           </header>
           <div id="onsiteProductShareBars" class="compare-bars"></div>
           <div class="table-wrap">
@@ -544,6 +545,49 @@
           <div class="table-wrap compact">
             <table id="onsiteUnmatchedTable"></table>
           </div>
+        </article>
+      </section>
+
+      <section class="view-shell hidden" id="attributionView">
+        <section id="attributionSourceHealth" class="source-health-grid" aria-label="数据源状态"></section>
+        <section id="attributionKpis" class="attribution-kpi-grid" aria-label="归因核心指标"></section>
+        <section class="attribution-layout">
+          <article class="panel attribution-trend-panel">
+            <header>
+              <div>
+                <h3>渠道投放与站内承接趋势</h3>
+                <span class="panel-note">同屏对比平台归因值、广告花费与 Shopify 财务真值</span>
+              </div>
+              <select id="attributionTrendMetric" class="compact-select" aria-label="趋势指标">
+                <option value="platform_value">平台归因值</option>
+                <option value="spend">广告花费</option>
+                <option value="purchases">平台转化</option>
+                <option value="shopify_net_sales">Shopify 净销售</option>
+              </select>
+            </header>
+            <div id="attributionTrend" class="chart attribution-chart"></div>
+          </article>
+          <article class="panel attribution-coverage-panel">
+            <header>
+              <h3>覆盖率与口径边界</h3>
+              <span class="panel-note">覆盖率低于阈值时，不做渠道贡献率结论</span>
+            </header>
+            <div id="attributionCoverage" class="coverage-stack"></div>
+          </article>
+        </section>
+        <article class="panel">
+          <header>
+            <h3>渠道表现与证据等级</h3>
+            <span class="panel-note">Shopify 为财务真值；媒体平台为平台归因口径，不直接相加</span>
+          </header>
+          <div class="table-wrap compact"><table id="attributionChannelTable"></table></div>
+        </article>
+        <article class="panel">
+          <header>
+            <h3>待处理问题</h3>
+            <span class="panel-note">优先修复会影响决策的数据缺口</span>
+          </header>
+          <div id="attributionIssues" class="attribution-issues"></div>
         </article>
       </section>
 
@@ -593,7 +637,7 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260706-kpi-mapping-review"></script>
-    <script src="./src/app.js?v=20260706-kpi-mapping-review"></script>
+    <script src="./data/dashboard-data.js?v=20260713-attribution"></script>
+    <script src="./src/app.js?v=20260713-attribution"></script>
   </body>
 </html>
