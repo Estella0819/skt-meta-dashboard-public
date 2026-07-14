@@ -446,7 +446,7 @@ function comparisonRows(source) {
 }
 
 function isMetaAdRow(row) {
-  return row.operator === "Meta" || row.material_type === "Meta";
+  return row.operator !== "Google" && row.material_type !== "Google";
 }
 
 function viewUsesMetaOnlyAds() {
