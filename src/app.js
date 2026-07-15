@@ -598,8 +598,12 @@ function shopifyAggregate(rows, dims = []) {
 }
 
 function normalizeChannelProduct(row) {
-  if (String(row?.channel || "").startsWith("Shopify")) return inferShopifyProductName(row.product_name);
-  return row?.product_name || "Unknown";
+  const rawName = String(row?.product_name || "Unknown").trim() || "Unknown";
+  if (String(row?.channel || "").startsWith("Shopify")) {
+    const mapped = inferShopifyProductName(rawName);
+    return mapped === "未匹配" ? rawName : mapped;
+  }
+  return rawName;
 }
 
 function channelRowsForWindow(source, start, end) {
@@ -1251,8 +1255,8 @@ function renderKpis(rows, previousRows, context = {}) {
     const previousShopify = previousByChannel.get("Shopify US") || {};
     const amazon = byChannel.get("Amazon US") || {};
     const previousAmazon = previousByChannel.get("Amazon US") || {};
-    const tiktok = byChannel.get("TikTok Shop") || {};
-    const previousTiktok = previousByChannel.get("TikTok Shop") || {};
+    const tiktok = byChannel.get("TikTok US") || {};
+    const previousTiktok = previousByChannel.get("TikTok US") || {};
     const topChannel = channelAggregate(channelRows, ["channel"]).sort((a, b) => b.channel_sales - a.channel_sales)[0];
     const topProductChannel = channelAggregate(channelRows, ["channel", "product_name"]).sort((a, b) => b.channel_units - a.channel_units)[0];
     renderKpiItems([
@@ -1474,12 +1478,12 @@ function renderChannelLineChart(id, rows) {
     el.innerHTML = `<p class="empty">当前筛选下没有美国三渠道销售数据。</p>`;
     return;
   }
-  const channelOrder = ["Shopify US", "Amazon US", "TikTok Shop"];
+  const channelOrder = ["Shopify US", "Amazon US", "TikTok US"];
   const channels = channelOrder.filter((channel) => rows.some((row) => row.channel === channel));
   const colors = {
     "Shopify US": "#047857",
     "Amazon US": "#a16207",
-    "TikTok Shop": "#2563eb",
+    "TikTok US": "#2563eb",
   };
   const dates = [...new Set(rows.map((row) => row.date_start))].sort();
   const byKey = new Map(rows.map((row) => [`${row.date_start}||${row.channel}`, row]));
@@ -1933,11 +1937,11 @@ function renderChannelProductMix(id, rows) {
     el.innerHTML = `<p class="empty">当前筛选下没有渠道产品销量数据。</p>`;
     return;
   }
-  const channelOrder = ["Shopify US", "Amazon US", "TikTok Shop"];
+  const channelOrder = ["Shopify US", "Amazon US", "TikTok US"];
   const colors = {
     "Shopify US": "#047857",
     "Amazon US": "#a16207",
-    "TikTok Shop": "#2563eb",
+    "TikTok US": "#2563eb",
   };
   const byProduct = new Map();
   for (const row of rows) {
