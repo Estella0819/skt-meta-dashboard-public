@@ -40,6 +40,14 @@ const state = {
   compareEndDate: "",
   trendMetric: "spend",
   attributionMetric: "platform_value",
+  googleAdTypes: [],
+  googleProducts: [],
+  googleCountries: [],
+  googleSort: {
+    adType: { key: "spend", direction: "desc" },
+    product: { key: "platform_gmv", direction: "desc" },
+    market: { key: "spend", direction: "desc" },
+  },
 };
 
 const pendingTime = {
@@ -427,6 +435,21 @@ function passesCommonFilters(row) {
   return true;
 }
 
+function googleAccountLabel(accountId) {
+  return `Google Ads · ${accountId}`;
+}
+
+function accountOptionsForView() {
+  const metaAccounts = [...new Set(data.fact.map((row) => row.account_name || "Unknown"))].sort((a, b) => a.localeCompare(b));
+  if (state.view !== "attribution") return metaAccounts;
+  const googleAccounts = [...new Set([
+    ...(data.google_ad_type_daily || []),
+    ...(data.google_product_daily || []),
+    ...(data.google_market_daily || []),
+  ].map((row) => googleAccountLabel(row.account_id)))].sort((a, b) => a.localeCompare(b));
+  return [...new Set([...metaAccounts, ...googleAccounts])];
+}
+
 function rowsForWindow(source, start, end) {
   return source.filter((row) => {
     if (start && row.date_start < start) return false;
@@ -749,7 +772,7 @@ function updateApplyTimeButton() {
 
 function initFilters() {
   const countries = [...new Set(data.fact.map((row) => row.country || "Unknown"))].sort();
-  const accounts = [...new Set(data.fact.map((row) => row.account_name || "Unknown"))].sort((a, b) => a.localeCompare(b));
+  const accounts = accountOptionsForView();
   const products = [...new Set([
     ...data.fact.map((row) => row.product_name || "Unknown"),
     ...data.fact.map((row) => row.standard_product_name || row.product_name || "Unknown"),
@@ -1980,7 +2003,15 @@ function efficiencyLabel(row) {
 
 function renderTable(id, rows, columns, limit = 80, options = {}) {
   const visible = rows.slice(0, limit);
-  const head = columns.map((col) => `<th class="${col.num ? "num" : ""} ${col.sticky ? "sticky-col" : ""}">${col.label}</th>`).join("");
+  const head = columns.map((col) => {
+    const sortable = options.sortGroup && col.sortable !== false;
+    const active = sortable && state.googleSort[options.sortGroup]?.key === col.key;
+    const direction = active ? state.googleSort[options.sortGroup].direction : "";
+    const label = sortable
+      ? `<button type="button" class="google-sort-button ${active ? "active" : ""}" data-google-sort="${options.sortGroup}" data-google-sort-key="${col.key}" aria-label="按${escapeHtml(col.label)}排序">${col.label}<span aria-hidden="true">${direction === "asc" ? "↑" : (direction === "desc" ? "↓" : "↕")}</span></button>`
+      : col.label;
+    return `<th class="${col.num ? "num" : ""} ${col.sticky ? "sticky-col" : ""}">${label}</th>`;
+  }).join("");
   const body = visible.map((row) => `
     <tr class="${escapeHtml(row._rowClass || "")}">
       ${columns.map((col) => {
@@ -2236,6 +2267,8 @@ function tableSummary(rows) {
     "returns",
     "net_sales",
     "taxes",
+    "conversions",
+    "platform_gmv",
     "sales_gap",
     "country_count",
     "material_count",
@@ -2247,6 +2280,10 @@ function tableSummary(rows) {
   summary.meta_roas = summary.spend ? summary.meta_purchase_value / summary.spend : 0;
   summary.onsite_roas = summary.spend ? summary.shopify_sales / summary.spend : 0;
   summary.cpa = summary.purchase_times ? summary.spend / summary.purchase_times : 0;
+  summary.google_roas = summary.spend ? summary.platform_gmv / summary.spend : null;
+  summary.google_cpa = summary.conversions ? summary.spend / summary.conversions : null;
+  summary.google_ctr = summary.impressions ? summary.clicks / summary.impressions : null;
+  summary.google_cvr = summary.clicks ? summary.conversions / summary.clicks : null;
   summary.ctr = summary.impressions ? summary.clicks / summary.impressions : 0;
   summary.cvr = summary.clicks ? summary.purchase_times / summary.clicks : 0;
   summary.cpm = summary.impressions ? (summary.spend / summary.impressions) * 1000 : 0;
@@ -2305,11 +2342,18 @@ function applyContentFilter(key, value) {
     video_source: "videoSource",
     material_name: "materialName",
     ad_name: "adName",
+    googleAdTypes: "googleAdTypes",
+    googleProducts: "googleProducts",
+    googleCountries: "googleCountries",
   };
   const stateKey = mapping[key];
   if (!stateKey || !value) return;
   state[stateKey] = [value];
   updateMultiButton(stateKey);
+  if (stateKey.startsWith("google")) {
+    renderGoogleAttributionDetail();
+    return;
+  }
   render();
 }
 
@@ -2323,6 +2367,9 @@ function preserveScroll(callback) {
 }
 
 function renderContextFilters() {
+  const accounts = accountOptionsForView();
+  state.account = state.account.filter((value) => accounts.includes(value));
+  setMultiOptions("account", accounts, state.account);
   if (state.view === "channels" || state.view === "attribution") {
     const options = channelOptionsForView();
     state.channel = state.channel.filter((value) => options.includes(value));
@@ -3063,6 +3110,225 @@ function renderAttributionIssues() {
     </article>`).join("") || `<p class="empty">暂无待处理问题。</p>`;
 }
 
+function googleRowsForWindow(source, start = state.startDate, end = state.endDate, filters = {}) {
+  const selectedGoogleAccounts = state.account.filter((value) => value.startsWith("Google Ads · "));
+  return (source || []).filter((row) => {
+    if (start && row.date_start < start) return false;
+    if (end && row.date_start > end) return false;
+    if (selectedGoogleAccounts.length && !selectedGoogleAccounts.includes(googleAccountLabel(row.account_id))) return false;
+    if (filters.adType && state.googleAdTypes.length && !state.googleAdTypes.includes(row.ad_type)) return false;
+    if (filters.product && state.googleProducts.length && !state.googleProducts.includes(row.product_name)) return false;
+    if (filters.country && state.googleCountries.length && !state.googleCountries.includes(row.country_name || row.country_code)) return false;
+    return true;
+  });
+}
+
+function aggregateGoogleDimension(currentRows, previousRows, dimensions) {
+  const groupRows = (rows) => {
+    const groups = new Map();
+    rows.forEach((row) => {
+      const key = compareKey(row, dimensions);
+      const group = groups.get(key) || { dimensions: Object.fromEntries(dimensions.map((dimension) => [dimension, row[dimension] ?? "Unknown"])), rows: [] };
+      group.rows.push(row);
+      groups.set(key, group);
+    });
+    return groups;
+  };
+  const currentGroups = groupRows(currentRows);
+  const previousGroups = groupRows(previousRows);
+  return [...currentGroups.entries()].map(([key, group]) => {
+    const current = DashboardMetrics.aggregateGoogleMetrics(group.rows);
+    const previous = DashboardMetrics.aggregateGoogleMetrics(previousGroups.get(key)?.rows || []);
+    return { ...group.dimensions, ...current, delta: DashboardMetrics.compareGoogleMetrics(current, previous) };
+  });
+}
+
+function googleMetricWithDelta(row, key, formatter, inverse = false) {
+  const value = formatter(row[key]);
+  const delta = row.delta?.[key];
+  if (delta === null || delta === undefined) return metricStack(value, `<span class="flat">上一周期无数据</span>`);
+  const sign = delta >= 0 ? "+" : "";
+  return metricStack(value, deltaBadge({ text: `${sign}${pct(delta)}`, cls: delta >= 0 ? "up" : "down" }, inverse));
+}
+
+function sortGoogleRows(rows, sort) {
+  const direction = sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const leftValue = left?.[sort.key];
+    const rightValue = right?.[sort.key];
+    if (typeof leftValue === "string" || typeof rightValue === "string") {
+      return direction * String(leftValue || "").localeCompare(String(rightValue || ""), "zh-CN");
+    }
+    return direction * (getMetric(left, sort.key) - getMetric(right, sort.key));
+  });
+}
+
+function googleMinimumSpend(rows) {
+  return Math.max(100, DashboardMetrics.aggregateGoogleMetrics(rows).spend * 0.05);
+}
+
+function googleSummary(id, rows, label, detail = "") {
+  const totals = DashboardMetrics.aggregateGoogleMetrics(rows);
+  const el = document.getElementById(id);
+  el.textContent = rows.length
+    ? `${label} ${number(rows.length)} 项 · 花费 ${money(totals.spend)} · Google 平台归因 GMV ${money(totals.platform_gmv)} · ROAS ${ratio(totals.roas)}。${detail}`
+    : "当前筛选下暂无数据。";
+}
+
+function renderGoogleShareBars(id, rows, key, filterKey) {
+  const el = document.getElementById(id);
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">当前筛选下暂无数据。</p>`;
+    return;
+  }
+  const visible = [...rows].sort((left, right) => getMetric(right, "spend") - getMetric(left, "spend")).slice(0, 8);
+  const totals = DashboardMetrics.aggregateGoogleMetrics(rows);
+  el.innerHTML = `<div class="google-share-bars">${visible.map((row) => {
+    const value = row[key] || "Unknown";
+    const spendShare = totals.spend ? getMetric(row, "spend") / totals.spend : 0;
+    const gmvShare = totals.platform_gmv ? getMetric(row, "platform_gmv") / totals.platform_gmv : 0;
+    return `<button type="button" class="google-share-row" data-filter-key="${filterKey}" data-filter-value="${escapeHtml(value)}"><span>${escapeHtml(value)}</span><b>花费 ${pct(spendShare)} · GMV ${pct(gmvShare)}</b><i class="google-spend-share" style="width:${spendShare * 100}%"></i><i class="google-gmv-share" style="width:${gmvShare * 100}%"></i></button>`;
+  }).join("")}</div>`;
+}
+
+function renderGoogleMarketScatter(id, rows) {
+  const el = document.getElementById(id);
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">当前筛选下暂无数据。</p>`;
+    return;
+  }
+  const width = 860;
+  const height = 320;
+  const margin = { top: 22, right: 28, bottom: 48, left: 58 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const maxSpend = Math.max(...rows.map((row) => getMetric(row, "spend")), 1);
+  const maxRoas = Math.max(...rows.map((row) => getMetric(row, "roas")), 1);
+  const maxGmv = Math.max(...rows.map((row) => getMetric(row, "platform_gmv")), 1);
+  const x = (value) => margin.left + (getMetric({ value }, "value") / maxSpend) * plotWidth;
+  const y = (value) => margin.top + plotHeight - (getMetric({ value }, "value") / maxRoas) * plotHeight;
+  const radius = (value) => 5 + Math.sqrt(getMetric({ value }, "value") / maxGmv) * 18;
+  const labelSlots = [205, 150, 180, 254, 224, 105];
+  const labels = new Map([...rows]
+    .sort((left, right) => getMetric(right, "spend") - getMetric(left, "spend"))
+    .slice(0, 6)
+    .map((row, index) => [row.country_name || "Unknown", labelSlots[index]]));
+  const xTicks = [0, 0.25, 0.5, 0.75, 1];
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Google 市场花费、ROAS 和平台归因 GMV 散点图">
+    ${xTicks.map((tick) => `<g class="google-scatter-axis"><line x1="${margin.left + plotWidth * tick}" x2="${margin.left + plotWidth * tick}" y1="${margin.top}" y2="${margin.top + plotHeight}"></line><text x="${margin.left + plotWidth * tick}" y="${height - 22}" text-anchor="middle">${money(maxSpend * tick)}</text></g>`).join("")}
+    ${yTicks.map((tick) => `<g class="google-scatter-axis"><line x1="${margin.left}" x2="${margin.left + plotWidth}" y1="${margin.top + plotHeight - plotHeight * tick}" y2="${margin.top + plotHeight - plotHeight * tick}"></line><text x="${margin.left - 8}" y="${margin.top + plotHeight - plotHeight * tick + 4}" text-anchor="end">${ratio(maxRoas * tick)}</text></g>`).join("")}
+    <text class="google-scatter-title" x="${margin.left + plotWidth / 2}" y="${height - 4}" text-anchor="middle">花费</text>
+    <text class="google-scatter-title" x="14" y="${margin.top + plotHeight / 2}" text-anchor="middle" transform="rotate(-90 14 ${margin.top + plotHeight / 2})">ROAS</text>
+    ${rows.map((row) => {
+      const country = row.country_name || "Unknown";
+      const unknown = country === "Unknown";
+      const tooltip = `${country} | 花费 ${money(row.spend)} | ROAS ${ratio(row.roas)} | Google 平台归因 GMV ${money(row.platform_gmv)}`;
+      const labelYSlot = labels.get(country);
+      const labelX = Math.max(margin.left + 2, Math.min(width - margin.right - 2, x(row.spend)));
+      const labelY = labelYSlot === undefined ? 0 : Math.max(margin.top + 13, Math.min(margin.top + plotHeight - 12, labelYSlot));
+      const labelAnchor = labelX > width - 150 ? "end" : (labelX < 150 ? "start" : "middle");
+      return `<a class="google-scatter-point ${unknown ? "google-scatter-unknown" : ""}" data-filter-key="googleCountries" data-filter-value="${escapeHtml(country)}" href="#googleMarketTable"><title>${escapeHtml(tooltip)}</title><circle cx="${x(row.spend)}" cy="${y(row.roas)}" r="${radius(row.platform_gmv)}"></circle>${labelYSlot === undefined ? "" : `<text x="${labelX}" y="${labelY}" text-anchor="${labelAnchor}">${escapeHtml(country)}</text>`}</a>`;
+    }).join("")}
+  </svg>`;
+}
+
+function renderGoogleDetailFilters(containerId, key, label, values) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = `<div class="multi-select google-detail-filter" data-filter="${key}"><span class="filter-label">${label}</span><button type="button" class="multi-trigger" id="${key}FilterButton" aria-expanded="false">全部</button><div class="multi-panel" id="${key}FilterPanel"></div></div>`;
+  state[key] = state[key].filter((value) => values.includes(value));
+  setMultiOptions(key, values, state[key]);
+}
+
+function renderGoogleAdTypes(rows, previousRows) {
+  const aggregated = sortGoogleRows(aggregateGoogleDimension(rows, previousRows, ["ad_type"]), state.googleSort.adType);
+  const minimumSpend = googleMinimumSpend(aggregated);
+  const best = [...aggregated].filter((row) => row.spend >= minimumSpend && row.conversions > 0).sort((left, right) => getMetric(right, "roas") - getMetric(left, "roas"))[0];
+  googleSummary("googleAdTypeSummary", aggregated, "广告类型", best ? `满足最低花费 ${money(minimumSpend)} 的最高 ROAS 类型为 ${best.ad_type}（${ratio(best.roas)}）。` : `最低花费门槛为 ${money(minimumSpend)}，暂无满足门槛的类型。`);
+  renderGoogleShareBars("googleAdTypeChart", aggregated, "ad_type", "googleAdTypes");
+  renderTable("googleAdTypeTable", aggregated, googleColumns("ad_type", "广告类型", "googleAdTypes"), 30, { sortGroup: "adType", previousSummaryRows: aggregateGoogleDimension(previousRows, [], ["ad_type"]) });
+}
+
+function renderGoogleProducts(rows, previousRows) {
+  const aggregated = sortGoogleRows(aggregateGoogleDimension(rows, previousRows, ["product_name", "ad_type"]), state.googleSort.product);
+  const minimumSpend = googleMinimumSpend(aggregated);
+  const topGmv = [...aggregated].sort((left, right) => getMetric(right, "platform_gmv") - getMetric(left, "platform_gmv"))[0];
+  const best = [...aggregated].filter((row) => row.spend >= minimumSpend && row.conversions > 0).sort((left, right) => getMetric(right, "roas") - getMetric(left, "roas"))[0];
+  const topText = topGmv ? `最高平台 GMV 产品为 ${topGmv.product_name}（${money(topGmv.platform_gmv)}）。` : "";
+  const bestText = best ? `效率最高的达标产品为 ${best.product_name}（ROAS ${ratio(best.roas)}）。` : `最低花费门槛为 ${money(minimumSpend)}，暂无达标产品。`;
+  googleSummary("googleProductSummary", aggregated, "产品 / 广告类型", `${topText}${bestText}`);
+  renderTable("googleProductTable", aggregated, googleColumns("product_name", "产品", "googleProducts", true), 100, { sortGroup: "product", previousSummaryRows: aggregateGoogleDimension(previousRows, [], ["product_name", "ad_type"]) });
+}
+
+function renderGoogleMarkets(rows, previousRows) {
+  const aggregated = sortGoogleRows(aggregateGoogleDimension(rows, previousRows, ["country_name"]), state.googleSort.market);
+  const totals = DashboardMetrics.aggregateGoogleMetrics(aggregated);
+  const minimumSpend = googleMinimumSpend(aggregated);
+  const eligible = aggregated.filter((row) => row.spend >= minimumSpend);
+  const strong = [...eligible].filter((row) => row.roas > totals.roas).sort((left, right) => getMetric(right, "spend") - getMetric(left, "spend"))[0];
+  const weak = [...eligible].filter((row) => row.roas < totals.roas).sort((left, right) => getMetric(right, "spend") - getMetric(left, "spend"))[0];
+  const detail = `加权 ROAS 基准 ${ratio(totals.roas)}；${strong ? `高花费高 ROAS 国家为 ${strong.country_name}（${ratio(strong.roas)}）` : "暂无高花费高 ROAS 国家"}；${weak ? `高花费低 ROAS 国家为 ${weak.country_name}（${ratio(weak.roas)}）` : "暂无高花费低 ROAS 国家"}。`;
+  googleSummary("googleMarketSummary", aggregated, "市场", detail);
+  renderGoogleMarketScatter("googleMarketChart", aggregated);
+  renderTable("googleMarketTable", aggregated, googleColumns("country_name", "国家", "googleCountries"), 100, { sortGroup: "market", previousSummaryRows: aggregateGoogleDimension(previousRows, [], ["country_name"]) });
+}
+
+function googleColumns(dimension, label, filterKey, includeAdType = false) {
+  const columns = [
+    { key: dimension, label, sticky: true, filterKey, format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
+  ];
+  if (includeAdType) columns.push({ key: "ad_type", label: "广告类型", filterKey: "googleAdTypes", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` });
+  return columns.concat([
+    { key: "spend", label: "花费", value: (row) => row, format: (row) => googleMetricWithDelta(row, "spend", money), summaryKey: "spend", summaryFormat: money, num: true },
+    { key: "platform_gmv", label: "Google 平台归因 GMV", value: (row) => row, format: (row) => googleMetricWithDelta(row, "platform_gmv", money), summaryKey: "platform_gmv", summaryFormat: money, num: true },
+    { key: "conversions", label: "转化", value: (row) => row, format: (row) => googleMetricWithDelta(row, "conversions", number), summaryKey: "conversions", summaryFormat: number, num: true },
+    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => googleMetricWithDelta(row, "roas", ratio), summaryKey: "google_roas", summaryFormat: ratio, num: true },
+    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => googleMetricWithDelta(row, "cpa", money, true), summaryKey: "google_cpa", summaryFormat: money, num: true },
+    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => googleMetricWithDelta(row, "ctr", pct), summaryKey: "google_ctr", summaryFormat: pct, num: true },
+    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => googleMetricWithDelta(row, "cvr", pct), summaryKey: "google_cvr", summaryFormat: pct, num: true },
+  ]);
+}
+
+function renderGoogleAttributionDetail() {
+  const period = comparisonWindow();
+  const adTypeSource = state.googleCountries.length ? data.google_market_daily : data.google_ad_type_daily;
+  const adTypeFilters = { adType: true, country: state.googleCountries.length > 0 };
+  const productFilters = { adType: true, product: true };
+  const marketFilters = { adType: true, country: true };
+  const currentAdTypes = googleRowsForWindow(adTypeSource, state.startDate, state.endDate, adTypeFilters);
+  const previousAdTypes = googleRowsForWindow(adTypeSource, period.start, period.end, adTypeFilters);
+  const productSource = (data.google_product_daily || []).map((row) => ({ ...row, product_name: row.product_name || "未识别产品" }));
+  const marketSource = (data.google_market_daily || []).map((row) => ({ ...row, country_name: row.country_name || row.country_code || "Unknown" }));
+  const currentProducts = googleRowsForWindow(productSource, state.startDate, state.endDate, productFilters)
+    .filter((row) => row.ad_type !== "Search");
+  const previousProducts = googleRowsForWindow(productSource, period.start, period.end, productFilters)
+    .filter((row) => row.ad_type !== "Search");
+  const currentMarkets = googleRowsForWindow(marketSource, state.startDate, state.endDate, marketFilters);
+  const previousMarkets = googleRowsForWindow(marketSource, period.start, period.end, marketFilters);
+  const adTypes = [...new Set([
+    ...(data.google_ad_type_daily || []),
+    ...(data.google_product_daily || []),
+    ...(data.google_market_daily || []),
+  ].map((row) => row.ad_type).filter(Boolean))].sort();
+  const products = [...new Set(productSource.filter((row) => row.ad_type !== "Search").map((row) => row.product_name))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const countries = [...new Set(marketSource.map((row) => row.country_name))].sort((a, b) => a.localeCompare(b));
+  renderGoogleDetailFilters("googleAdTypeFilters", "googleAdTypes", "广告类型", adTypes);
+  renderGoogleDetailFilters("googleProductFilters", "googleProducts", "产品", products);
+  renderGoogleDetailFilters("googleMarketFilters", "googleCountries", "国家", countries);
+  const active = [
+    ...state.googleAdTypes.map((value) => `广告类型：${value}`),
+    ...state.googleProducts.map((value) => `产品：${value}`),
+    ...state.googleCountries.map((value) => `国家：${value}`),
+  ];
+  document.getElementById("googleActiveFilters").innerHTML = active.length
+    ? `${escapeHtml(active.join("；"))} <button type="button" class="ghost-button" data-google-reset-filters>重置明细筛选</button>`
+    : "";
+  document.getElementById("googleActiveFilters").classList.toggle("hidden", !active.length);
+  renderGoogleAdTypes(currentAdTypes, previousAdTypes);
+  renderGoogleProducts(currentProducts, previousProducts);
+  renderGoogleMarkets(currentMarkets, previousMarkets);
+}
+
 function renderAttribution() {
   const dailyRows = attributionRowsForWindow(normalizedAttributionDailyRows());
   const coverageRows = attributionRowsForWindow(data.attribution_coverage_daily || []);
@@ -3072,6 +3338,7 @@ function renderAttribution() {
   renderAttributionKpis(dailyRows);
   renderAttributionTrend(dailyRows);
   renderAttributionCoverage(coverageRows);
+  renderGoogleAttributionDetail();
   renderTable("attributionEfficiencyTable", efficiencyRows, [
     { key: "channel", label: "渠道", sticky: true, filterKey: "channel" },
     {
@@ -3567,25 +3834,29 @@ function bindEvents() {
       render();
     });
   });
-  document.querySelectorAll(".multi-trigger").forEach((button) => {
-    button.addEventListener("click", () => {
-      const wrapper = button.closest(".multi-select");
-      const isOpen = wrapper.classList.contains("open");
-      document.querySelectorAll(".multi-select.open").forEach((el) => {
-        el.classList.remove("open");
-        el.querySelector(".multi-trigger").setAttribute("aria-expanded", "false");
-      });
-      if (!isOpen) {
-        wrapper.classList.add("open");
-        button.setAttribute("aria-expanded", "true");
-      }
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".multi-trigger");
+    if (!button) return;
+    const wrapper = button.closest(".multi-select");
+    const isOpen = wrapper.classList.contains("open");
+    document.querySelectorAll(".multi-select.open").forEach((el) => {
+      el.classList.remove("open");
+      el.querySelector(".multi-trigger").setAttribute("aria-expanded", "false");
     });
+    if (!isOpen) {
+      wrapper.classList.add("open");
+      button.setAttribute("aria-expanded", "true");
+    }
   });
   document.addEventListener("change", (event) => {
     if (!event.target.matches(".multi-panel input[type='checkbox']")) return;
     const key = event.target.dataset.filter;
     state[key] = getSelectedValues(key);
     updateMultiButton(key);
+    if (key.startsWith("google")) {
+      preserveScroll(renderGoogleAttributionDetail);
+      return;
+    }
     preserveScroll(render);
   });
   document.addEventListener("input", (event) => {
@@ -3608,7 +3879,30 @@ function bindEvents() {
       input.checked = false;
     });
     updateMultiButton(key);
+    if (key.startsWith("google")) {
+      preserveScroll(renderGoogleAttributionDetail);
+      return;
+    }
     preserveScroll(render);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-google-reset-filters]")) return;
+    state.googleAdTypes = [];
+    state.googleProducts = [];
+    state.googleCountries = [];
+    preserveScroll(renderGoogleAttributionDetail);
+  });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-google-sort]");
+    if (!button) return;
+    const group = button.dataset.googleSort;
+    const key = button.dataset.googleSortKey;
+    const current = state.googleSort[group];
+    state.googleSort[group] = {
+      key,
+      direction: current.key === key && current.direction === "desc" ? "asc" : "desc",
+    };
+    preserveScroll(renderGoogleAttributionDetail);
   });
   document.getElementById("startDateFilter").addEventListener("change", (event) => {
     pendingTime.startDate = event.target.value;
@@ -3681,6 +3975,9 @@ function bindEvents() {
     state.videoSource = [];
     state.materialName = [];
     state.adName = [];
+    state.googleAdTypes = [];
+    state.googleProducts = [];
+    state.googleCountries = [];
     initFilters();
     preserveScroll(render);
   });

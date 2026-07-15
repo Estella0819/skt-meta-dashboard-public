@@ -54,7 +54,7 @@
           对比结束
           <input id="compareEndDateFilter" type="date" />
         </label>
-        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,product,country,creative,operator,landing,onsite">
+        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,product,country,creative,operator,landing,onsite,attribution">
           <span class="filter-label">账户</span>
           <button type="button" class="multi-trigger" id="accountFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="accountFilterPanel"></div>
@@ -579,6 +579,26 @@
           <div class="table-wrap compact"><table id="attributionEfficiencyTable"></table></div>
           <div id="attributionDiagnostics" class="attribution-diagnostics"></div>
         </article>
+        <section class="google-attribution-detail" aria-label="Google 广告明细">
+          <div id="googleActiveFilters" class="active-filter-note"></div>
+          <article class="panel google-detail-panel">
+            <header><div><h3>Google 广告类型表现</h3><span class="panel-note">Search、PMax、PLA 等平台归因效率</span></div><div id="googleAdTypeFilters"></div></header>
+            <div id="googleAdTypeSummary" class="panel-summary"></div>
+            <div id="googleAdTypeChart" class="google-type-chart"></div>
+            <div class="table-wrap google-detail-scroll"><table id="googleAdTypeTable"></table></div>
+          </article>
+          <article class="panel google-detail-panel">
+            <header><div><h3>Google 产品表现</h3><span class="panel-note">仅统计可准确识别商品的 PMax / PLA</span></div><div id="googleProductFilters"></div></header>
+            <div id="googleProductSummary" class="panel-summary"></div>
+            <div class="table-wrap google-detail-scroll"><table id="googleProductTable"></table></div>
+          </article>
+          <article class="panel google-detail-panel">
+            <header><div><h3>Google 市场表现</h3><span class="panel-note">按国家观察花费、平台归因 GMV 与效率</span></div><div id="googleMarketFilters"></div></header>
+            <div id="googleMarketSummary" class="panel-summary"></div>
+            <div id="googleMarketChart" class="google-market-scatter"></div>
+            <div class="table-wrap google-detail-scroll"><table id="googleMarketTable"></table></div>
+          </article>
+        </section>
         <article class="panel">
           <header>
             <h3>待处理问题</h3>

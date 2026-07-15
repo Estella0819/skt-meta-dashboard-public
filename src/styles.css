@@ -1821,6 +1821,191 @@ svg {
   height: 370px;
 }
 
+.google-attribution-detail {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.google-detail-panel {
+  width: 100%;
+}
+
+.google-detail-panel header {
+  align-items: end;
+}
+
+.google-detail-filter {
+  width: min(220px, 100%);
+}
+
+.google-detail-scroll {
+  max-height: 520px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.google-detail-panel table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.google-detail-panel th,
+.google-detail-panel td {
+  padding: 7px 5px;
+}
+
+.google-detail-panel th:first-child,
+.google-detail-panel td:first-child {
+  width: 16%;
+}
+
+.google-detail-panel th:nth-child(n + 2),
+.google-detail-panel td:nth-child(n + 2) {
+  width: 12%;
+}
+
+.panel-summary {
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfd;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.google-share-bars {
+  display: grid;
+  gap: 8px;
+  padding: 12px 13px;
+}
+
+.google-share-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(100px, 0.8fr) minmax(180px, 1.2fr);
+  gap: 8px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px 15px;
+  overflow: hidden;
+  background: #f8fafc;
+  color: #344054;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.google-share-row:hover {
+  background: var(--accent-soft);
+}
+
+.google-share-row span,
+.google-share-row b {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.google-share-row b {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.google-share-row i {
+  position: absolute;
+  left: 8px;
+  bottom: 5px;
+  height: 4px;
+  border-radius: 999px;
+}
+
+.google-spend-share { background: var(--accent); }
+.google-gmv-share { bottom: 0; background: var(--blue); }
+
+.google-market-scatter {
+  width: 100%;
+  min-height: 320px;
+  aspect-ratio: 43 / 16;
+  padding: 8px 13px 2px;
+  overflow: hidden;
+}
+
+.google-market-scatter svg {
+  width: 100%;
+  height: 100%;
+}
+
+.google-scatter-axis line {
+  stroke: #e2e8f0;
+  stroke-width: 1;
+}
+
+.google-scatter-axis text,
+.google-scatter-title,
+.google-scatter-point text {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.google-scatter-title {
+  fill: #475467;
+}
+
+.google-scatter-point {
+  cursor: pointer;
+}
+
+.google-scatter-point circle {
+  fill: rgba(11, 111, 106, 0.24);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.google-scatter-point:hover circle,
+.google-scatter-point:focus circle {
+  fill: rgba(37, 99, 235, 0.28);
+  stroke: var(--blue);
+  stroke-width: 3;
+}
+
+.google-scatter-unknown circle {
+  fill: rgba(180, 83, 9, 0.2);
+  stroke: var(--warn);
+}
+
+.google-sort-button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+th:not(.num) .google-sort-button {
+  justify-content: flex-start;
+}
+
+.google-sort-button.active,
+.google-sort-button:hover {
+  color: var(--accent);
+}
+
 .coverage-stack,
 .attribution-issues {
   display: grid;
@@ -2273,5 +2458,44 @@ svg {
 
   .issue-card {
     grid-template-columns: 1fr;
+  }
+
+  .google-detail-panel header {
+    align-items: stretch;
+  }
+
+  .google-detail-filter {
+    width: 100%;
+  }
+
+  .google-detail-scroll {
+    max-height: 520px;
+    overflow-x: hidden;
+  }
+
+  .google-detail-panel th:first-child,
+  .google-detail-panel td:first-child,
+  .google-detail-panel th:nth-child(n + 2),
+  .google-detail-panel td:nth-child(n + 2) {
+    width: auto;
+  }
+
+  #attributionEfficiencyTable th:first-child,
+  #attributionEfficiencyTable td:first-child {
+    width: auto;
+  }
+
+  .google-market-scatter {
+    min-height: 255px;
+    aspect-ratio: 1 / 1;
+    padding: 8px 2px 2px;
+  }
+
+  .google-share-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .google-share-row b {
+    text-align: left;
   }
 }

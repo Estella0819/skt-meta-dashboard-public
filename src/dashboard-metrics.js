@@ -62,11 +62,39 @@ const DashboardMetrics = (() => {
     };
   };
 
+  const aggregateGoogleMetrics = (rows = []) => {
+    const sum = (key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+    const spend = sum("spend");
+    const impressions = sum("impressions");
+    const clicks = sum("clicks");
+    const conversions = sum("conversions");
+    const platform_gmv = sum("platform_gmv");
+    return {
+      spend, impressions, clicks, conversions, platform_gmv,
+      roas: spend > 0 ? platform_gmv / spend : null,
+      cpa: conversions > 0 ? spend / conversions : null,
+      ctr: impressions > 0 ? clicks / impressions : null,
+      cvr: clicks > 0 ? conversions / clicks : null,
+    };
+  };
+
+  const compareGoogleMetrics = (current, previous) => {
+    const delta = (now, before) => Number.isFinite(now) && Number.isFinite(before) && before !== 0
+      ? (now - before) / Math.abs(before)
+      : null;
+    return Object.fromEntries(
+      ["spend", "platform_gmv", "conversions", "roas", "cpa", "ctr", "cvr"]
+        .map((key) => [key, delta(current[key], previous[key])]),
+    );
+  };
+
   return {
     calculateAov,
     calculateAovFromRows,
     calculateChannelEfficiency,
     calculateAttributionDiagnostics,
+    aggregateGoogleMetrics,
+    compareGoogleMetrics,
   };
 })();
 
