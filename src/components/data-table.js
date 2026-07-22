@@ -35,6 +35,63 @@
       : { key, direction: "desc" };
   }
 
+  function rowsToTsv(rows, columns) {
+    const clean = (value) => String(value ?? "")
+      .replace(/\r?\n/g, " ")
+      .replace(/\t/g, " ")
+      .trim();
+    const exportColumns = (columns || []).filter((column) => column.export !== false);
+    const lines = [exportColumns.map((column) => clean(column.label)).join("\t")];
+    for (const row of rows || []) {
+      lines.push(exportColumns.map((column) => {
+        const raw = column.exportValue ? column.exportValue(row) : row?.[column.key];
+        return clean(raw);
+      }).join("\t"));
+    }
+    return lines.join("\n");
+  }
+
+  async function copyText(text, doc) {
+    const clipboard = doc?.defaultView?.navigator?.clipboard || globalThis.navigator?.clipboard;
+    if (clipboard?.writeText) return clipboard.writeText(text);
+    if (!doc?.createElement || !doc?.body || !doc.execCommand) return false;
+    const input = doc.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    doc.body.appendChild(input);
+    input.select();
+    const copied = doc.execCommand("copy");
+    input.remove();
+    return copied;
+  }
+
+  function installCopyButton(element, rows, columns) {
+    const panel = element.closest?.(".panel");
+    const header = panel?.querySelector?.(":scope > header");
+    const doc = element.ownerDocument;
+    if (!header || !doc?.createElement) return;
+    const tableId = element.id || "dashboard-table";
+    let button = header.querySelector?.(`[data-copy-table="${tableId}"]`);
+    if (!button) {
+      button = doc.createElement("button");
+      button.type = "button";
+      button.className = "table-copy-button";
+      button.dataset.copyTable = tableId;
+      button.title = "复制完整表格";
+      button.setAttribute("aria-label", "复制完整表格");
+      button.textContent = "复制";
+      header.appendChild(button);
+    }
+    button.onclick = async () => {
+      const original = button.textContent;
+      const copied = await copyText(rowsToTsv(rows, columns), doc);
+      button.textContent = copied === false ? "失败" : "已复制";
+      setTimeout(() => { button.textContent = original; }, 1200);
+    };
+  }
+
   function classNames(...values) {
     return values.filter(Boolean).join(" ");
   }
@@ -184,6 +241,7 @@
       focusedButton?.focus({ preventScroll: true });
     }
     if (wrapper) wrapper.scrollTop = scrollTop;
+    installCopyButton(element, sortedRows, tableColumns);
     bindInteractions(element);
     bindings.set(element, {
       columns: tableColumns,
@@ -194,5 +252,5 @@
     return { rows: visibleRows, summary: summaryData, sort };
   }
 
-  return { sortRows, nextSort, render };
+  return { sortRows, nextSort, rowsToTsv, render };
 });
