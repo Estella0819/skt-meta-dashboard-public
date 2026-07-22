@@ -4,9 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>广告投放看板</title>
-    <link rel="stylesheet" href="./src/styles.css?v=20260713-attribution" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./src/styles.css?v=20260721-component-refactor-r4" />
   </head>
-  <body>
+  <body class="cockpit-shell-marker">
     <header class="topbar">
       <div class="topbar-main">
         <div class="brand">
@@ -21,15 +22,19 @@
           <button class="tab" data-view="product">产品</button>
           <button class="tab" data-view="country">国家</button>
           <button class="tab" data-view="creative">素材</button>
-          <button class="tab" data-view="operator">投手</button>
           <button class="tab" data-view="landing">落地页</button>
-          <button class="tab" data-view="onsite">站内</button>
           <button class="tab" data-view="attribution">归因</button>
           <button class="tab" data-view="channels">三渠道</button>
         </nav>
       </div>
 
       <section class="filterbar" aria-label="筛选条件">
+        <div class="date-presets" aria-label="快捷时间范围">
+          <button type="button" data-range-preset="3d">近3天</button>
+          <button type="button" data-range-preset="7d">近7天</button>
+          <button type="button" data-range-preset="30d">近30天</button>
+          <button type="button" data-range-preset="month">本月</button>
+        </div>
         <label class="date-filter">
           开始日期
           <input id="startDateFilter" type="date" />
@@ -54,7 +59,7 @@
           对比结束
           <input id="compareEndDateFilter" type="date" />
         </label>
-        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,product,country,creative,operator,landing,onsite,attribution">
+        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,product,country,creative,landing,attribution">
           <span class="filter-label">账户</span>
           <button type="button" class="multi-trigger" id="accountFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="accountFilterPanel"></div>
@@ -74,12 +79,12 @@
       </section>
 
       <section class="context-filterbar" aria-label="当前页面筛选">
-        <div class="multi-select" data-filter="country" data-views="product,country,landing,onsite">
+        <div class="multi-select" data-filter="country" data-views="product,country,landing">
           <span class="filter-label">国家</span>
           <button type="button" class="multi-trigger" id="countryFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="countryFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="product" data-views="product,country,creative,landing,onsite,channels">
+        <div class="multi-select" data-filter="product" data-views="product,country,creative,landing,channels">
           <span class="filter-label">产品</span>
           <button type="button" class="multi-trigger" id="productFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="productFilterPanel"></div>
@@ -99,7 +104,7 @@
           <button type="button" class="multi-trigger" id="channelFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="channelFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="operator" data-views="operator">
+        <div class="multi-select" data-filter="operator" data-views="creative">
           <span class="filter-label">投手</span>
           <button type="button" class="multi-trigger" id="operatorFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="operatorFilterPanel"></div>
@@ -114,6 +119,11 @@
           <button type="button" class="multi-trigger" id="videoSourceFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="videoSourceFilterPanel"></div>
         </div>
+        <div class="multi-select" data-filter="videoSubtype" data-views="creative">
+          <span class="filter-label">视频细分</span>
+          <button type="button" class="multi-trigger" id="videoSubtypeFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="videoSubtypeFilterPanel"></div>
+        </div>
         <span id="activeFilterNote" class="active-filter-note hidden"></span>
         <button id="resetFilters" class="ghost-button">重置筛选</button>
       </section>
@@ -123,8 +133,8 @@
       <section id="comparison" class="comparison-strip"></section>
       <section id="actionInsights" class="action-insights"></section>
 
-      <section class="view-shell" id="overviewView">
-        <section class="overview-layout">
+      <section class="view-shell" id="overviewView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <section class="overview-layout" data-module="trend">
           <article class="panel trend-panel">
             <header>
               <h3>核心趋势</h3>
@@ -145,315 +155,212 @@
             <div id="alertsList" class="alerts"></div>
           </article>
         </section>
-        <section class="rank-grid">
+        <section class="page-structure-anchor" data-module="structure" aria-hidden="true"></section>
+        <section class="rank-grid" data-module="detail">
           <article class="panel">
             <header>
               <h3>国家排行</h3>
-              <span class="panel-note">按 归因收入 排名；筛选产品后展示该产品各国家表现</span>
+              <button class="metric-info" type="button" title="按归因收入排名；筛选产品后展示该产品各国家表现" aria-label="国家排行口径">i</button>
             </header>
             <div id="countryBars" class="bars"></div>
           </article>
           <article class="panel">
             <header>
               <h3>产品排行</h3>
-              <span class="panel-note">按 归因收入 排名，不是按花费</span>
+              <button class="metric-info" type="button" title="按归因收入排名，不是按花费" aria-label="产品排行口径">i</button>
             </header>
             <div id="productBars" class="bars"></div>
           </article>
           <article class="panel">
             <header>
               <h3>素材排行</h3>
-              <span class="panel-note">跟随产品筛选，按花费排序</span>
+              <button class="metric-info" type="button" title="跟随产品筛选，按花费排序" aria-label="素材排行口径">i</button>
             </header>
             <div id="materialBars" class="bars"></div>
           </article>
           <article class="panel">
             <header>
               <h3>投手排行</h3>
-              <span class="panel-note">按 广告花费排名</span>
+              <button class="metric-info" type="button" title="按广告花费排名" aria-label="投手排行口径">i</button>
             </header>
             <div id="overviewOperatorBars" class="bars"></div>
           </article>
         </section>
       </section>
 
-      <section class="view-shell hidden" id="productView">
-        <section class="overview-layout">
-          <article class="panel trend-panel">
+      <section class="view-shell hidden product-page" id="productView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <div id="productSegmentControl" class="segmented-control page-segment-control" aria-label="产品分析维度">
+          <button type="button" data-segment="overall" aria-pressed="true">整体表现</button>
+          <button type="button" data-segment="form" aria-pressed="false">单品套组</button>
+          <button type="button" data-segment="material" aria-pressed="false">素材组合</button>
+        </div>
+        <article class="panel trend-panel" data-module="trend">
+          <header>
+            <h3 id="productTrendTitle">产品整体趋势</h3>
+            <button class="metric-info" type="button" title="Meta 广告归因收入日趋势" aria-label="Meta 广告归因收入日趋势">i</button>
+          </header>
+          <div class="trend-body">
+            <div id="productTrend" class="chart"></div>
+            <aside id="productTrendConclusion" class="chart-conclusion"></aside>
+          </div>
+        </article>
+        <section class="split-grid" data-module="structure">
+          <article class="panel">
             <header>
-              <h3>产品趋势</h3>
-              <span class="panel-note">广告投放端趋势，跟随产品 / 单品套组筛选</span>
+              <h3 id="productStructureTitle">产品结构</h3>
+              <button class="metric-info" type="button" title="归因收入与广告花费占比" aria-label="归因收入与广告花费占比">i</button>
             </header>
-            <div class="trend-body">
-              <div id="productTrend" class="chart"></div>
-              <aside id="productTrendConclusion" class="chart-conclusion"></aside>
-            </div>
+            <div id="productSegmentStructure" class="compare-bars"></div>
           </article>
           <article class="panel">
             <header>
-              <h3>单品/套组结构</h3>
-              <span class="panel-note">按 归因收入 占比展示</span>
-            </header>
-            <div id="productFormDonut" class="donut-card single-donut"></div>
-          </article>
-        </section>
-        <section class="split-grid">
-          <article class="panel">
-            <header>
-              <h3>产品名称整体表现</h3>
-              <span class="panel-note">按产品名称汇总；点击产品名称可筛选全页</span>
-            </header>
-            <div class="table-wrap compact">
-              <table id="productNameTable"></table>
-            </div>
-          </article>
-          <article class="panel">
-            <header>
-              <h3>单品 vs 套组</h3>
-              <span class="panel-note">判断当前投放更适合单品素材还是套组素材</span>
-            </header>
-            <div class="table-wrap compact">
-              <table id="productFormTable"></table>
-            </div>
-          </article>
-        </section>
-        <section class="split-grid">
-          <article class="panel">
-            <header>
-              <h3>产品占比匹配</h3>
-              <span class="panel-note">归因收入占比 vs 花费占比，判断产品是否跑赢投放</span>
-            </header>
-            <div id="productNameShareBars" class="compare-bars"></div>
-          </article>
-          <article class="panel">
-            <header>
-              <h3>产品 x 国家热力</h3>
-              <span class="panel-note">颜色按 ROAS，数值显示 归因收入</span>
+              <h3>产品 x 国家</h3>
+              <button class="metric-info" type="button" title="颜色按 ROAS，数值为归因收入" aria-label="颜色按 ROAS，数值为归因收入">i</button>
             </header>
             <div id="productCountryHeatmap" class="heatmap"></div>
           </article>
         </section>
-        <section class="split-grid">
-          <article class="panel">
-            <header>
-              <h3>产品 x 国家</h3>
-              <span class="panel-note">按 归因收入 排序；国家作为下钻维度</span>
-            </header>
-            <div class="table-wrap">
-              <table id="productCountryTable"></table>
-            </div>
-          </article>
-          <article class="panel">
-            <header>
-              <h3>产品 x 素材类型</h3>
-              <span class="panel-note">看各产品适合图文、视频、合创或视频来源</span>
-            </header>
-            <div class="table-wrap">
-              <table id="productMaterialTypeTable"></table>
-            </div>
-          </article>
-        </section>
-        <article class="panel">
+        <article class="panel" data-module="detail">
           <header>
-            <h3>标准产品表现</h3>
-            <span class="panel-note">使用你确认后的标准产品名</span>
+            <h3 id="productDetailTitle">产品表现明细</h3>
+            <button class="metric-info" type="button" title="Meta 广告数据，点击维度值可交叉筛选" aria-label="Meta 广告数据，点击维度值可交叉筛选">i</button>
           </header>
+          <p id="productTableConclusion" class="table-conclusion"></p>
           <div class="table-wrap">
-            <table id="standardProductTable"></table>
+            <table id="productSegmentTable"></table>
           </div>
         </article>
       </section>
 
-      <section class="view-shell hidden" id="countryView">
-        <article class="panel country-trend-panel">
+      <section class="view-shell hidden country-page" id="countryView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <article class="panel country-trend-panel" data-module="trend">
           <header>
-            <h3>国家趋势</h3>
-            <span class="panel-note">快捷筛选国家 / 产品，图表跟随当前筛选</span>
+            <h3>每日归因收入趋势</h3>
+            <span id="countryTrendScope" class="country-scope-label"></span>
           </header>
-          <div id="countryTrendQuickFilters" class="quick-filter-row"></div>
           <div class="trend-body">
             <div id="countryTrend" class="chart small"></div>
             <aside id="countryTrendConclusion" class="chart-conclusion"></aside>
           </div>
         </article>
-        <article class="panel">
+        <article class="panel country-region-panel" data-module="structure">
           <header>
-            <h3>地区投放效果</h3>
-            <span class="panel-note">中东=SA/AE；美国=US；澳英加=其余国家；unknown 单独归为未识别地区</span>
+            <div>
+              <h3>地区结构</h3>
+              <button class="metric-info" type="button" title="中东 SA/AE；美国 US；澳英加为其余市场" aria-label="地区定义">i</button>
+            </div>
+            <span id="countryRegionScope" class="country-scope-label"></span>
           </header>
           <div id="regionShareBars" class="compare-bars"></div>
           <div class="table-wrap compact">
             <table id="regionTable"></table>
           </div>
         </article>
-        <article class="panel">
+        <article class="panel country-detail-panel" data-module="detail">
           <header>
-            <h3>国家 x 产品热力</h3>
-            <span class="panel-note">颜色按 ROAS，数值显示 归因收入；点击国家或产品继续筛选</span>
-          </header>
-          <div id="countryProductHeatmap" class="heatmap"></div>
-        </article>
-        <article class="panel">
-          <header><h3>国家表现矩阵</h3></header>
-          <div class="table-wrap compact">
-            <table id="countryTable"></table>
-          </div>
-        </article>
-        <article class="panel">
-          <header>
-            <h3>国家 x 产品</h3>
-            <span class="panel-note">二维组合，按销售额排序；素材表现请看素材页</span>
+            <h3>国家明细</h3>
+            <button class="metric-info" type="button" title="标准产品粒度，按归因收入排序" aria-label="国家明细口径">i</button>
           </header>
           <div class="table-wrap">
-            <table id="countryProductTable"></table>
+            <table id="countryDetailTable"></table>
           </div>
         </article>
       </section>
 
-      <section class="view-shell hidden" id="creativeView">
-        <article class="panel">
-          <header>
-            <h3>素材类型对比</h3>
-            <span class="panel-note">广告数据；视频含汇总，并拆分自产素材 / TT搬运；素材数按唯一素材名/编号</span>
-          </header>
-          <div class="viz-grid compact-viz">
-            <div id="materialSpendDonut" class="donut-card"></div>
-            <div id="materialSalesDonut" class="donut-card"></div>
-          </div>
-          <div id="materialShareBars" class="compare-bars"></div>
-          <div class="table-wrap compact">
-            <table id="materialComparisonTable"></table>
-          </div>
-        </article>
-        <article class="panel">
-          <header>
-            <h3>产品 x 素材类型热力</h3>
-            <span class="panel-note">颜色按 ROAS，数值显示 归因收入；判断哪个产品适合哪类素材</span>
-          </header>
-          <div id="creativeProductHeatmap" class="heatmap"></div>
-        </article>
-        <section class="creative-groups">
-          <article class="panel">
-            <header><h3>高花费素材</h3></header>
-            <div id="highSpendCreatives" class="creative-list"></div>
+      <section class="view-shell hidden" id="creativeView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <div id="creativeSegmentControl" class="segmented-control creative-segment-control" aria-label="素材分析维度">
+          <button type="button" class="active" data-segment="type" aria-pressed="true">素材类型</button>
+          <button type="button" data-segment="source" aria-pressed="false">视频来源</button>
+          <button type="button" data-segment="subtype" aria-pressed="false">视频细分</button>
+        </div>
+        <div class="creative-segment-module" data-creative-segment-module data-module="trend">
+          <article class="panel trend-panel" data-module="trend">
+            <header>
+              <h3 id="creativeTrendTitle">素材类型趋势</h3>
+              <button class="metric-info" type="button" title="Meta 广告数据，跟随当前素材维度和页面筛选" aria-label="素材趋势口径">i</button>
+            </header>
+            <div class="trend-body">
+              <div id="creativeTrend" class="chart"></div>
+              <aside id="creativeTrendConclusion" class="chart-conclusion"></aside>
+            </div>
           </article>
-          <article class="panel">
-            <header><h3>高 ROAS 素材</h3></header>
-            <div id="highRoasCreatives" class="creative-list"></div>
+          <article class="panel" data-module="structure">
+            <header>
+              <h3 id="creativeStructureTitle">素材类型结构</h3>
+              <button class="metric-info" type="button" title="按确认字段汇总，不改变素材分类" aria-label="素材结构口径">i</button>
+            </header>
+            <div id="creativeStructureDonut" class="donut-card single-donut"></div>
+            <div id="creativeStructureShares" class="compare-bars"></div>
+            <div class="table-wrap compact">
+              <table id="creativeStructureTable"></table>
+            </div>
           </article>
-          <article class="panel">
-            <header><h3>风险素材</h3></header>
-            <div id="riskCreatives" class="creative-list"></div>
-          </article>
-        </section>
-        <article class="panel">
+        </div>
+        <article class="panel" data-module="structure">
           <header>
-            <h3>产品 x 素材表现</h3>
-            <span class="panel-note">广告数据；看每个产品对应哪些素材类型和素材编号跑得好</span>
+            <h3 id="creativeProductMaterialTitle">产品 x 素材类型</h3>
+            <button class="metric-info" type="button" title="标准产品与当前素材维度的支持分析" aria-label="产品素材口径">i</button>
           </header>
           <div class="table-wrap">
-            <table id="creativeProductTable"></table>
+            <table id="creativeProductMaterialTable"></table>
           </div>
         </article>
-        <article class="panel">
+        <article class="panel" data-module="detail">
           <header>
             <h3>素材明细</h3>
-            <span class="panel-note">Meta Top 500 素材明细，按花费排序</span>
+            <button class="metric-info" type="button" title="Meta 素材明细，含 Ad name，按花费排序" aria-label="素材明细口径">i</button>
           </header>
           <div class="table-wrap">
-            <table id="creativeTable"></table>
+            <table id="creativeDetailTable"></table>
           </div>
         </article>
       </section>
 
-      <section class="view-shell hidden" id="operatorView">
-        <section class="operator-layout">
-          <article class="panel">
-            <header>
-              <h3>投手总览</h3>
-              <span class="panel-note">按花费占比展示</span>
-            </header>
-            <div id="operatorShareDonut" class="donut-card single-donut"></div>
-          </article>
-          <article class="panel">
-            <header>
-              <h3>投手效率象限</h3>
-              <span class="panel-note">横轴花费，纵轴 ROAS，气泡大小代表 归因收入</span>
-            </header>
-            <div id="operatorQuadrant" class="quadrant-chart"></div>
-          </article>
-          <article class="panel">
-            <header><h3>投手组合提醒</h3></header>
-            <div id="operatorAlerts" class="alerts"></div>
-          </article>
-        </section>
-        <section class="split-grid">
-          <article class="panel">
-            <header>
-              <h3>投手 x 产品</h3>
-              <span class="panel-note">按花费排序，判断产品侧分工和效率</span>
-            </header>
-            <div class="table-wrap">
-              <table id="operatorProductTable"></table>
-            </div>
-          </article>
-          <article class="panel">
-            <header>
-              <h3>投手 x 国家</h3>
-              <span class="panel-note">按花费排序，判断国家侧分工和效率</span>
-            </header>
-            <div class="table-wrap">
-              <table id="operatorCountryTable"></table>
-            </div>
-          </article>
-        </section>
-      </section>
-
-      <section class="view-shell hidden" id="landingView">
-        <section class="split-grid">
+      <section class="view-shell hidden" id="landingView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <section class="split-grid" data-module="structure">
           <article class="panel">
             <header>
               <h3>落地页类型对比</h3>
-              <span class="panel-note">从 campaign / adset name 提取</span>
+              <button class="metric-info" type="button" title="从 campaign / adset name 提取" aria-label="落地页类型口径">i</button>
             </header>
             <div id="landingTypeDonut" class="donut-card single-donut"></div>
           </article>
           <article class="panel">
             <header>
               <h3>落地页效率对比</h3>
-              <span class="panel-note">花费占比 vs GMV占比，判断承接是否跑赢投放</span>
+              <button class="metric-info" type="button" title="花费占比 vs GMV占比，判断承接是否跑赢投放" aria-label="落地页效率口径">i</button>
             </header>
             <div id="landingTypeBars" class="compare-bars"></div>
           </article>
         </section>
-        <article class="panel compact-analysis-panel">
+        <article class="panel compact-analysis-panel" data-module="structure">
           <header>
             <h3>落地页判断</h3>
-            <span class="panel-note">自动提炼主要承接、高效承接和风险承接</span>
+            <button class="metric-info" type="button" title="自动提炼主要承接、高效承接和风险承接" aria-label="落地页判断口径">i</button>
           </header>
           <div id="landingInsights" class="alerts inline-alerts"></div>
         </article>
-        <article class="panel">
+        <article class="panel" data-module="trend">
           <header>
             <h3>落地页类型趋势</h3>
-            <span class="panel-note">按日期观察集合页、详情页、活动页的 归因收入 变化</span>
+            <button class="metric-info" type="button" title="按日期观察集合页、详情页、活动页的归因收入变化" aria-label="落地页趋势口径">i</button>
           </header>
           <div id="landingTypeTrend" class="chart small"></div>
         </article>
-        <article class="panel">
+        <article class="panel" data-module="structure">
           <header>
             <h3>落地页类型整体对比</h3>
-            <span class="panel-note">先判断集合页、活动专题页、详情页的整体承接效率</span>
+            <button class="metric-info" type="button" title="集合页、活动专题页、详情页整体承接效率" aria-label="落地页整体对比口径">i</button>
           </header>
           <div class="table-wrap compact">
             <table id="landingTypeTable"></table>
           </div>
         </article>
-        <section class="landing-detail-stack">
+        <section class="landing-detail-stack" data-module="detail">
           <article class="panel">
             <header>
               <h3>落地页 x 产品</h3>
-              <span class="panel-note">通过落地页类型 / 国家筛选继续下钻</span>
+              <button class="metric-info" type="button" title="通过落地页类型或国家筛选继续下钻" aria-label="落地页产品口径">i</button>
             </header>
             <div class="table-wrap">
               <table id="landingProductTable"></table>
@@ -462,17 +369,17 @@
           <article class="panel">
             <header>
               <h3>落地页 x 国家</h3>
-              <span class="panel-note">通过落地页类型 / 产品筛选继续下钻</span>
+              <button class="metric-info" type="button" title="通过落地页类型或产品筛选继续下钻" aria-label="落地页国家口径">i</button>
             </header>
             <div class="table-wrap">
               <table id="landingCountryTable"></table>
             </div>
           </article>
         </section>
-        <article class="panel">
+        <article class="panel" data-module="detail">
           <header>
             <h3>落地页 x 素材</h3>
-            <span class="panel-note">看不同落地页类型下哪些素材更有效</span>
+            <button class="metric-info" type="button" title="不同落地页类型的素材效率" aria-label="落地页素材口径">i</button>
           </header>
           <div class="table-wrap">
             <table id="landingMaterialTable"></table>
@@ -480,78 +387,15 @@
         </article>
       </section>
 
-      <section class="view-shell hidden" id="onsiteView">
-        <section class="onsite-top">
-          <article class="panel trend-panel onsite-trend-panel">
-            <header>
-              <h3>归因收入 vs Shopify 净销售趋势</h3>
-              <span class="panel-note">Shopify ROI 口径使用 net sales</span>
-            </header>
-            <div class="trend-body onsite-trend-body">
-              <div id="onsiteTrend" class="chart onsite-chart"></div>
-              <aside id="onsiteTrendConclusion" class="chart-conclusion onsite-conclusion"></aside>
-            </div>
-          </article>
-        </section>
-        <section id="onsiteSummary" class="onsite-summary"></section>
-        <article class="panel">
-          <header>
-            <h3>国家承接：净销售占比 vs 花费占比</h3>
-            <span class="panel-note">看 Shopify net sales 占比是否跑赢 广告花费占比</span>
-          </header>
-          <div id="onsiteCountryShareBars" class="compare-bars"></div>
-          <div class="table-wrap compact">
-            <table id="onsiteCountryTable"></table>
-          </div>
-        </article>
-        <article class="panel">
-          <header>
-            <h3>产品承接总表</h3>
-            <span class="panel-note">Shopify net sales 占比 vs 广告花费占比，按净销售额排序</span>
-          </header>
-          <div id="onsiteProductShareBars" class="compare-bars"></div>
-          <div class="table-wrap">
-            <table id="onsiteProductComparisonTable"></table>
-          </div>
-        </article>
-        <article class="panel">
-          <header>
-            <h3>国家 x 产品：占比匹配与效率</h3>
-            <span class="panel-note">产品为映射后归类，原始 Shopify 商品名见下方对账表</span>
-          </header>
-          <div class="table-wrap">
-            <table id="onsiteProductTable"></table>
-          </div>
-        </article>
-        <article class="panel">
-          <header>
-            <h3>Shopify 原始商品销售对账</h3>
-            <span class="panel-note">按原始 product_title 展示，帮助核对产品归类和国家销售额</span>
-          </header>
-          <div class="table-wrap">
-            <table id="onsiteRawProductTable"></table>
-          </div>
-        </article>
-        <article class="panel">
-          <header>
-            <h3>Shopify 未匹配商品</h3>
-            <span class="panel-note">用于后续补充人工产品映射</span>
-          </header>
-          <div class="table-wrap compact">
-            <table id="onsiteUnmatchedTable"></table>
-          </div>
-        </article>
-      </section>
-
-      <section class="view-shell hidden" id="attributionView">
-        <section id="attributionSourceHealth" class="source-health-grid" aria-label="数据源状态"></section>
-        <section id="attributionKpis" class="attribution-kpi-grid" aria-label="归因核心指标"></section>
-        <section class="attribution-layout">
+      <section class="view-shell hidden" id="attributionView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <section id="attributionSourceHealth" class="source-health-grid" aria-label="数据源状态" data-module="conclusion"></section>
+        <section id="attributionKpis" class="attribution-kpi-grid" aria-label="归因核心指标" data-module="kpis"></section>
+        <section class="attribution-layout" data-module="trend">
           <article class="panel attribution-trend-panel">
             <header>
               <div>
                 <h3>渠道投放与站内承接趋势</h3>
-                <span class="panel-note">同屏对比平台归因值、广告花费与 Shopify 财务真值</span>
+                <button class="metric-info" type="button" title="同屏对比平台归因值、广告花费与 Shopify 财务真值" aria-label="归因趋势口径">i</button>
               </div>
               <select id="attributionTrendMetric" class="compact-select" aria-label="趋势指标">
                 <option value="platform_value">平台归因 GMV</option>
@@ -566,86 +410,93 @@
           <article class="panel attribution-coverage-panel">
             <header>
               <h3>覆盖率与口径边界</h3>
-              <span class="panel-note">覆盖率低于阈值时，不做渠道贡献率结论</span>
+              <button class="metric-info" type="button" title="覆盖率低于阈值时，不做渠道贡献率结论" aria-label="归因覆盖率口径">i</button>
             </header>
             <div id="attributionCoverage" class="coverage-stack"></div>
           </article>
         </section>
-        <article class="panel">
+        <article class="panel" data-module="structure">
           <header>
             <h3>Meta 与 Google 投放效率</h3>
-            <span class="panel-note">平台 GMV 为各渠道自归因口径；SUM 行按合计值重新计算</span>
+            <button class="metric-info" type="button" title="平台 GMV 为各渠道自归因口径；SUM 行按合计值重算" aria-label="归因效率口径">i</button>
           </header>
           <div class="table-wrap compact"><table id="attributionEfficiencyTable"></table></div>
           <div id="attributionDiagnostics" class="attribution-diagnostics"></div>
         </article>
-        <section class="google-attribution-detail" aria-label="Google 广告明细">
+        <section class="google-attribution-detail" aria-label="Google 广告明细" data-module="detail">
           <div id="googleActiveFilters" class="active-filter-note"></div>
           <article class="panel google-detail-panel">
-            <header><div><h3>Google 广告类型表现</h3><span class="panel-note">Search、PMax、PLA 等平台归因效率</span></div><div id="googleAdTypeFilters"></div></header>
+            <header><div><h3>Google 广告类型表现</h3><button class="metric-info" type="button" title="Search、PMax、PLA 等平台归因效率" aria-label="Google 广告类型口径">i</button></div><div id="googleAdTypeFilters"></div></header>
             <div id="googleAdTypeSummary" class="panel-summary"></div>
             <div id="googleAdTypeChart" class="google-type-chart"></div>
             <div class="table-wrap google-detail-scroll"><table id="googleAdTypeTable"></table></div>
           </article>
           <article class="panel google-detail-panel">
-            <header><div><h3>Google 产品表现</h3><span class="panel-note">仅统计可准确识别商品的 PMax / PLA</span></div><div id="googleProductFilters"></div></header>
+            <header><div><h3>Google 产品表现</h3><button class="metric-info" type="button" title="仅统计可准确识别商品的 PMax 或 PLA" aria-label="Google 产品口径">i</button></div><div id="googleProductFilters"></div></header>
             <div id="googleProductSummary" class="panel-summary"></div>
             <div class="table-wrap google-detail-scroll"><table id="googleProductTable"></table></div>
           </article>
           <article class="panel google-detail-panel">
-            <header><div><h3>Google 市场表现</h3><span class="panel-note">按国家观察花费、平台归因 GMV 与效率</span></div><div id="googleMarketFilters"></div></header>
+            <header><div><h3>Google 市场表现</h3><button class="metric-info" type="button" title="按国家观察花费、平台归因 GMV 与效率" aria-label="Google 市场口径">i</button></div><div id="googleMarketFilters"></div></header>
             <div id="googleMarketSummary" class="panel-summary"></div>
             <div id="googleMarketChart" class="google-market-scatter"></div>
             <div class="table-wrap google-detail-scroll"><table id="googleMarketTable"></table></div>
           </article>
         </section>
-        <article class="panel">
+        <article class="panel" data-module="detail">
           <header>
             <h3>待处理问题</h3>
-            <span class="panel-note">优先修复会影响决策的数据缺口</span>
+            <button class="metric-info" type="button" title="优先修复会影响决策的数据缺口" aria-label="待处理问题口径">i</button>
           </header>
           <div id="attributionIssues" class="attribution-issues"></div>
         </article>
       </section>
 
-      <section class="view-shell hidden" id="channelsView">
-        <article class="panel trend-panel onsite-trend-panel">
+      <section class="view-shell hidden" id="channelsView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <div class="channel-scope-bar">
+          <div id="channelMarketControl" class="segmented-control" aria-label="市场范围">
+            <button type="button" class="active" data-channel-market="US">美国</button>
+            <button type="button" data-channel-market="NON_US">非美国</button>
+          </div>
+          <div id="channelCountryFilters" class="channel-country-filters" hidden></div>
+        </div>
+        <article class="panel trend-panel onsite-trend-panel" data-module="trend">
           <header>
-            <h3>美国三渠道每日销售趋势</h3>
-            <span class="panel-note">三渠道均按美元展示；TikTok 使用源表原始美元 GMV</span>
+            <h3 id="channelTrendTitle">多渠道每日销售趋势</h3>
+            <button class="metric-info" type="button" title="Shopify 为 Net Sales；Amazon/TikTok 为 Source USD GMV" aria-label="渠道汇总口径">i</button>
           </header>
           <div class="trend-body onsite-trend-body">
             <div id="usChannelTrend" class="chart onsite-chart"></div>
             <aside id="usChannelTrendConclusion" class="chart-conclusion onsite-conclusion"></aside>
           </div>
         </article>
-        <article class="panel">
+        <article class="panel" data-module="structure">
           <header>
-            <h3>三渠道产品结构对比</h3>
-            <span class="panel-note">按销量展示产品在 Shopify / Amazon / TikTok 的渠道结构</span>
+            <h3>渠道产品结构对比</h3>
+            <button class="metric-info" type="button" title="按销量展示产品在 Shopify / Amazon / TikTok 的渠道结构；Shopify 为 Net Sales，Amazon/TikTok 为 Source USD GMV" aria-label="渠道产品结构口径">i</button>
           </header>
           <div id="usChannelProductMix" class="stacked-bars"></div>
         </article>
-        <article class="panel">
+        <article class="panel" data-module="structure">
           <header>
             <h3>渠道产品销量排行</h3>
-            <span class="panel-note">跟随渠道筛选，按销量展示产品表现</span>
+            <button class="metric-info" type="button" title="跟随渠道筛选，按销量展示产品表现" aria-label="渠道产品排行口径">i</button>
           </header>
           <div id="usChannelProductBars" class="bars"></div>
         </article>
-        <article class="panel">
+        <article class="panel" data-module="detail">
           <header>
             <h3>渠道汇总</h3>
-            <span class="panel-note">按各渠道原始销售额口径；筛选渠道后，趋势和产品表只看对应渠道</span>
+            <button class="metric-info" type="button" title="Shopify 为 Net Sales；Amazon/TikTok 为 Source USD GMV" aria-label="渠道汇总口径">i</button>
           </header>
           <div class="table-wrap compact">
             <table id="usChannelSummaryTable"></table>
           </div>
         </article>
-        <article class="panel">
+        <article class="panel" data-module="detail">
           <header>
             <h3>渠道 x 产品销量表现</h3>
-            <span class="panel-note">按销量排序；销售额保留各渠道原始口径</span>
+            <button class="metric-info" type="button" title="按销量排序；各渠道销售额均为美元口径" aria-label="渠道产品口径">i</button>
           </header>
           <div class="table-wrap">
             <table id="usChannelProductTable"></table>
@@ -654,8 +505,18 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260713-attribution"></script>
+    <script src="./data/dashboard-data.js?v=20260720-creative-detail"></script>
     <script src="./src/dashboard-metrics.js?v=20260714-meta-aov"></script>
-    <script src="./src/app.js?v=20260714-meta-aov"></script>
+    <script src="./src/components/filter-controls.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/components/segmented-control.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/components/data-table.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/components/page-shell.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/dashboard-ui.js?v=20260720-cockpit"></script>
+    <script src="./src/dashboard-state.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/page-config.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/pages/country-page.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/pages/creative-page.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/pages/product-page.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/app.js?v=20260721-component-refactor-r4"></script>
   </body>
 </html>

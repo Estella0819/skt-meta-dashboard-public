@@ -22,17 +22,23 @@ const data = normalizeDashboardData(window.META_DASHBOARD_DATA);
 
 const state = {
   view: "overview",
+  productSegment: "overall",
+  creativeSegment: "type",
   startDate: "",
   endDate: "",
   country: [],
+  countryRegion: "ALL",
   account: [],
   product: [],
   productForm: [],
   channel: [],
+  channelMarket: "US",
+  channelCountries: [],
   operator: [],
   landingType: [],
   materialType: [],
   videoSource: [],
+  videoSubtype: [],
   materialName: [],
   adName: [],
   compareMode: "lastMonth",
@@ -50,24 +56,16 @@ const state = {
   },
 };
 
+const filterOptions = {};
+
+const NON_US_COMPARABLE_COUNTRIES = ["AU", "CA", "JP", "GB"];
+
 const pendingTime = {
   startDate: "",
   endDate: "",
   compareMode: "lastMonth",
   compareStartDate: "",
   compareEndDate: "",
-};
-
-const titles = {
-  overview: ["总览", "投放规模、效率和趋势"],
-  product: ["产品", "产品名称、单品套组和产品表现"],
-  country: ["国家", "国家层面的产品承接和素材贡献"],
-  creative: ["素材", "高花费、高回报和风险素材分层"],
-  operator: ["投手", "投手、产品和国家组合表现"],
-  landing: ["落地页", "活动专题页、详情页和集合页承接表现"],
-  onsite: ["站内", "广告投放与 Shopify 实际销售承接"],
-  attribution: ["归因", "渠道投放、Shopify 承接与数据可用性"],
-  channels: ["三渠道", "美国 Shopify、Amazon 和 TikTok 销售趋势"],
 };
 
 const metricLabels = {
@@ -164,6 +162,23 @@ function channelMoney(value, rowOrChannel = "") {
   return money(value);
 }
 
+function hasChannelData(byChannel, channel) {
+  return byChannel.has(channel);
+}
+
+function channelMarketLabel() {
+  return state.channelMarket === "US" ? "美国" : "非美国可比市场";
+}
+
+function channelMarketCountries() {
+  if (state.channelMarket === "US") return ["US"];
+  return state.channelCountries.length ? state.channelCountries : NON_US_COMPARABLE_COUNTRIES;
+}
+
+function channelTrendTitle() {
+  return `${channelMarketLabel()}多渠道每日销售趋势`;
+}
+
 function number(value, digits = 0) {
   if (value === null || value === undefined || value === "") return "-";
   return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits });
@@ -240,6 +255,7 @@ function filterControlId(key) {
     landing_type: "landingType",
     material_type: "materialType",
     video_source: "videoSource",
+    video_subtype: "videoSubtype",
     material_name: "materialName",
     ad_name: "adName",
   }[key];
@@ -265,6 +281,7 @@ function filterHref(key, value) {
   appendValues(params, "landingType", key === "landing_type" ? [value] : state.landingType);
   appendValues(params, "materialType", key === "material_type" ? [value] : state.materialType);
   appendValues(params, "videoSource", key === "video_source" ? [value] : state.videoSource);
+  appendValues(params, "videoSubtype", key === "video_subtype" ? [value] : state.videoSubtype);
   appendValues(params, "materialName", key === "material_name" ? [value] : state.materialName);
   appendValues(params, "adName", key === "ad_name" ? [value] : state.adName);
   return `?${params.toString()}`;
@@ -275,11 +292,7 @@ function getMetric(row, key) {
 }
 
 function countryRegion(country) {
-  const value = String(country || "").trim().toUpperCase();
-  if (!value || value === "UNKNOWN") return "未识别地区";
-  if (value === "SA" || value === "AE") return "中东";
-  if (value === "US") return "美国";
-  return "澳英加";
+  return DashboardCountry.regionForCountry(country);
 }
 
 function countriesForRegion(region, rows = data.fact || []) {
@@ -311,6 +324,7 @@ data.ads = (data.ads || []).map(enrichProductFields);
 data.material_inventory = (data.material_inventory || []).map(enrichProductFields);
 data.shopify_fact = data.shopify_fact || [];
 data.us_channel_product_daily = data.us_channel_product_daily || [];
+data.channel_market_product_daily = data.channel_market_product_daily || [];
 
 function dateToTime(value) {
   const [year, month, day] = value.split("-").map(Number);
@@ -356,30 +370,7 @@ function comparisonWindow() {
 }
 
 function aggregate(rows, dims = []) {
-  const map = new Map();
-  for (const row of rows) {
-    const key = dims.map((dim) => row[dim] ?? "Unknown").join("||") || "all";
-    if (!map.has(key)) {
-      const seed = Object.fromEntries(dims.map((dim) => [dim, row[dim] ?? "Unknown"]));
-      Object.assign(seed, {
-        spend: 0,
-        impressions: 0,
-        reach: 0,
-        clicks: 0,
-        purchase_times: 0,
-        purchase_value: 0,
-      });
-      map.set(key, seed);
-    }
-    const item = map.get(key);
-    item.spend += getMetric(row, "spend");
-    item.impressions += getMetric(row, "impressions");
-    item.reach += getMetric(row, "reach");
-    item.clicks += getMetric(row, "clicks");
-    item.purchase_times += getMetric(row, "purchase_times");
-    item.purchase_value += getMetric(row, "purchase_value");
-  }
-  return [...map.values()].map(deriveMetrics);
+  return DashboardMetrics.groupRows(rows, dims);
 }
 
 function aggregateRegions(rows) {
@@ -412,17 +403,13 @@ function regionPerformanceRows(rows, previousRows) {
 }
 
 function deriveMetrics(row) {
-  row.roas = row.spend ? row.purchase_value / row.spend : 0;
-  row.cpa = row.purchase_times ? row.spend / row.purchase_times : 0;
-  row.ctr = row.impressions ? row.clicks / row.impressions : 0;
-  row.cvr = row.clicks ? row.purchase_times / row.clicks : 0;
+  Object.assign(row, DashboardMetrics.summarizeRows([row]));
   row.cpm = row.impressions ? (row.spend / row.impressions) * 1000 : 0;
-  row.aov = DashboardMetrics.calculateAov(row.purchase_value, row.purchase_times);
   return row;
 }
 
-function passesCommonFilters(row) {
-  if (state.country.length && !state.country.includes(row.country)) return false;
+function passesCommonFilters(row, options = {}) {
+  if (!options.ignoreCountry && state.country.length && !state.country.includes(row.country)) return false;
   if (state.account.length && !state.account.includes(row.account_name)) return false;
   if (state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
   if (state.productForm.length && !state.productForm.includes(row.product_form)) return false;
@@ -430,6 +417,7 @@ function passesCommonFilters(row) {
   if (state.landingType.length && !state.landingType.includes(row.landing_type || landingPageType(row))) return false;
   if (state.materialType.length && !state.materialType.includes(row.material_type)) return false;
   if (state.videoSource.length && !state.videoSource.includes(row.video_source)) return false;
+  if (state.videoSubtype.length && !state.videoSubtype.includes(row.video_subtype)) return false;
   if (state.materialName.length && (row.material_code || row.material_name || row.ad_name) && !state.materialName.includes(row.material_name || materialName(row))) return false;
   if (state.adName.length && row.ad_name && !state.adName.includes(row.ad_name)) return false;
   return true;
@@ -450,11 +438,11 @@ function accountOptionsForView() {
   return [...new Set([...metaAccounts, ...googleAccounts])];
 }
 
-function rowsForWindow(source, start, end) {
+function rowsForWindow(source, start, end, options = {}) {
   return source.filter((row) => {
     if (start && row.date_start < start) return false;
     if (end && row.date_start > end) return false;
-    return passesCommonFilters(row);
+    return passesCommonFilters(row, options);
   });
 }
 
@@ -473,7 +461,7 @@ function isMetaAdRow(row) {
 }
 
 function viewUsesMetaOnlyAds() {
-  return ["product", "country", "creative", "operator"].includes(state.view);
+  return ["product", "country", "creative"].includes(state.view);
 }
 
 function pageFactRows(source = data.fact) {
@@ -486,10 +474,29 @@ function pageComparisonRows(source = data.fact) {
   return viewUsesMetaOnlyAds() ? rows.filter(isMetaAdRow) : rows;
 }
 
+function countryPageModel() {
+  const ignoreCountry = state.countryRegion !== "ALL";
+  const current = rowsForWindow(data.fact, state.startDate, state.endDate, { ignoreCountry });
+  const period = comparisonWindow();
+  const previous = period.start && period.end
+    ? rowsForWindow(data.fact, period.start, period.end, { ignoreCountry })
+    : [];
+  return DashboardCountry.selectModel(current, previous, {}, state.countryRegion);
+}
+
+function creativePageModel(currentRows, previousRows) {
+  return DashboardCreative.selectModel(currentRows, previousRows, {}, state.creativeSegment);
+}
+
+function productPageModel(factRows, previousFactRows, adRows, previousAdRows) {
+  return DashboardProduct.selectModel(factRows, previousFactRows, adRows, previousAdRows, {}, state.productSegment);
+}
+
 function materialInventoryRowsForWindow(source = data.material_inventory, start = state.startDate, end = state.endDate) {
   return (source || []).map((row) => ({
     ...row,
     video_source: row.video_source || "",
+    video_subtype: row.video_subtype || "",
     material_name: row.material_name || materialName(row),
   })).filter((row) => {
     if (start && row.date_start < start) return false;
@@ -498,6 +505,7 @@ function materialInventoryRowsForWindow(source = data.material_inventory, start 
     if (state.productForm.length && !state.productForm.includes(row.product_form)) return false;
     if (state.materialType.length && !state.materialType.includes(row.material_type)) return false;
     if (state.videoSource.length && !state.videoSource.includes(row.video_source)) return false;
+    if (state.videoSubtype.length && !state.videoSubtype.includes(row.video_subtype)) return false;
     if (state.materialName.length && !state.materialName.includes(row.material_name)) return false;
     return true;
   });
@@ -599,22 +607,23 @@ function shopifyAggregate(rows, dims = []) {
 
 function normalizeChannelProduct(row) {
   const rawName = String(row?.product_name || "Unknown").trim() || "Unknown";
-  if (String(row?.channel || "").startsWith("Shopify")) {
-    const mapped = inferShopifyProductName(rawName);
-    return mapped === "未匹配" ? rawName : mapped;
-  }
   return rawName;
 }
 
 function channelRowsForWindow(source, start, end) {
   return (source || []).map((row) => enrichProductFields({
       ...row,
+      sku_code: String(row?.sku_code || "Unknown").trim().toUpperCase() || "Unknown",
       product_name: normalizeChannelProduct(row),
       channel_sales: getMetric(row, "sales"),
       channel_units: getMetric(row, "units"),
     })).filter((row) => {
+    if (getMetric(row, "channel_sales") === 0) return false;
     if (start && row.date_start < start) return false;
     if (end && row.date_start > end) return false;
+    if (row.market !== state.channelMarket) return false;
+    if (state.channelMarket === "NON_US" && state.channelCountries.length && !state.channelCountries.includes(row.country_code)) return false;
+    if (state.channelMarket === "NON_US" && !state.channelCountries.length && !NON_US_COMPARABLE_COUNTRIES.includes(row.country_code)) return false;
     if (state.channel.length && !state.channel.includes(row.channel)) return false;
     if (state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
     if (state.productForm.length && !state.productForm.includes(row.product_form)) return false;
@@ -622,14 +631,27 @@ function channelRowsForWindow(source, start, end) {
   });
 }
 
-function filteredChannelRows(source = data.us_channel_product_daily, start = state.startDate, end = state.endDate) {
+function filteredChannelRows(source = data.channel_market_product_daily, start = state.startDate, end = state.endDate) {
   return channelRowsForWindow(source, start, end);
 }
 
-function comparisonChannelRows(source = data.us_channel_product_daily) {
+function comparisonChannelRows(source = data.channel_market_product_daily) {
   const period = comparisonWindow();
   if (!period.start || !period.end) return [];
   return channelRowsForWindow(source, period.start, period.end);
+}
+
+function productOptionsForView() {
+  if (state.view === "channels") {
+    return [...new Set((data.channel_market_product_daily || []).map(normalizeChannelProduct))]
+      .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }
+  return [...new Set([
+    ...data.fact.map((row) => row.product_name || "Unknown"),
+    ...data.fact.map((row) => row.standard_product_name || row.product_name || "Unknown"),
+    ...(data.shopify_fact || []).map((row) => inferShopifyProductName(row.product_title)),
+    ...(data.channel_market_product_daily || []).map((row) => normalizeChannelProduct(row)),
+  ])].sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
 function channelAggregate(rows, dims = []) {
@@ -656,7 +678,10 @@ function channelAggregate(rows, dims = []) {
 
 function setMultiOptions(key, values, selected) {
   const panel = document.getElementById(`${key}FilterPanel`);
-  const selectedSet = new Set(selected);
+  if (!panel) return;
+  filterOptions[key] = [...values];
+  const effectiveSelected = selected.length ? selected : values;
+  const selectedSet = new Set(effectiveSelected);
   const search = values.length > 5 ? `
     <div class="multi-search">
       <input type="search" placeholder="搜索选项" data-filter-search="${key}" aria-label="搜索${key}筛选项" />
@@ -664,49 +689,63 @@ function setMultiOptions(key, values, selected) {
   ` : "";
   panel.innerHTML = `
     <div class="multi-actions">
-      <button type="button" data-filter-action="clear" data-filter="${key}">清空</button>
       <span>${values.length} 项</span>
     </div>
     ${search}
     <div class="multi-options">
+      <label class="check-option select-all-option" for="${key}_all">
+        <input id="${key}_all" type="checkbox" data-filter-select-all="${key}" />
+        <span>全选</span>
+      </label>
       ${values.map((value, index) => {
         const id = `${key}_${index}`;
         return `
-          <label class="check-option" for="${id}">
-            <input id="${id}" type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""} data-filter="${key}" />
+          <label class="check-option" for="${id}" data-filter-option-row>
+            <input id="${id}" type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""} data-filter="${key}" data-filter-option />
             <span>${escapeHtml(value)}</span>
           </label>
         `;
       }).join("")}
     </div>
   `;
+  updateSelectAllControl(key);
   updateMultiButton(key);
 }
 
-function filterMultiOptions(input) {
-  const keyword = input.value.trim().toLowerCase();
-  const panel = input.closest(".multi-panel");
-  panel.querySelectorAll(".check-option").forEach((option) => {
-    const text = option.textContent.trim().toLowerCase();
-    option.classList.toggle("hidden", keyword && !text.includes(keyword));
-  });
+function getSelectedValues(key) {
+  return [...document.querySelectorAll(`#${key}FilterPanel input[data-filter-option]:checked`)].map((input) => input.value);
 }
 
-function getSelectedValues(key) {
-  return [...document.querySelectorAll(`#${key}FilterPanel input[type="checkbox"]:checked`)].map((input) => input.value);
+function getVisibleFilterValues(key) {
+  return [...document.querySelectorAll(`#${key}FilterPanel [data-filter-option-row]:not(.hidden) input[data-filter-option]`)]
+    .map((input) => input.value);
+}
+
+function updateSelectAllControl(key) {
+  const input = document.querySelector(`#${key}FilterPanel [data-filter-select-all="${key}"]`);
+  if (!input) return;
+  const visible = getVisibleFilterValues(key);
+  const status = DashboardFilters.selectAllState(getSelectedValues(key), visible);
+  input.checked = status === "checked";
+  input.indeterminate = status === "indeterminate";
+  input.disabled = visible.length === 0;
+  input.dataset.state = status;
 }
 
 function updateMultiButton(key) {
   const button = document.getElementById(`${key}FilterButton`);
-  const values = state[key];
+  const values = state[key] || [];
   if (!button) return;
-  if (!values.length) {
-    button.textContent = "全部";
-    button.classList.remove("has-selection");
-    return;
-  }
-  button.textContent = values.length === 1 ? values[0] : `已选 ${values.length} 项`;
-  button.classList.add("has-selection");
+  const label = button.closest(".multi-select")?.querySelector(".filter-label")?.textContent.trim() || key;
+  button.textContent = DashboardFilters.selectionSummary(label, values, filterOptions[key] || []);
+  button.title = values.length > 1 ? values.join("、") : "";
+  button.classList.toggle("has-selection", values.length > 0);
+}
+
+function syncMultiSelection(key) {
+  const panel = document.getElementById(`${key}FilterPanel`);
+  DashboardFilters.syncSelection(panel, state[key] || []);
+  updateMultiButton(key);
 }
 
 function syncPendingTimeFromState() {
@@ -774,24 +813,42 @@ function updateApplyTimeButton() {
   renderPeriodHint();
 }
 
+function updateDatePresetButtons() {
+  document.querySelectorAll("[data-range-preset]").forEach((button) => {
+    const range = DashboardUI.datePresetRange(button.dataset.rangePreset, data.summary.max_date);
+    const active = range.startDate === pendingTime.startDate && range.endDate === pendingTime.endDate;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function applyPendingDatePreset(preset) {
+  const range = DashboardUI.datePresetRange(preset, data.summary.max_date);
+  pendingTime.startDate = range.startDate < data.summary.min_date ? data.summary.min_date : range.startDate;
+  pendingTime.endDate = range.endDate;
+  document.getElementById("startDateFilter").value = pendingTime.startDate;
+  document.getElementById("endDateFilter").value = pendingTime.endDate;
+  updateDatePresetButtons();
+  updateApplyTimeButton();
+}
+
 function initFilters() {
   const countries = [...new Set(data.fact.map((row) => row.country || "Unknown"))].sort();
   const accounts = accountOptionsForView();
-  const products = [...new Set([
-    ...data.fact.map((row) => row.product_name || "Unknown"),
-    ...data.fact.map((row) => row.standard_product_name || row.product_name || "Unknown"),
-    ...(data.shopify_fact || []).map((row) => inferShopifyProductName(row.product_title)),
-    ...(data.us_channel_product_daily || []).map((row) => normalizeChannelProduct(row)),
-  ])].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const products = productOptionsForView();
+  if (state.view === "channels") {
+    state.product = state.product.filter((value) => products.includes(value));
+  }
   const productForms = [...new Set(data.fact.map((row) => row.product_form || "待确认"))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   const operators = [...new Set(data.fact.map((row) => row.operator || "Unknown"))].sort();
   const channels = [...new Set([
-    ...(data.us_channel_product_daily || []).map((row) => row.channel || "Unknown"),
+    ...(data.channel_market_product_daily || []).map((row) => row.channel || "Unknown"),
     ...(data.attribution_channel || []).map((row) => row.channel || "Unknown"),
   ])].sort();
   const landingTypes = ["集合页", "活动专题页", "详情页"].filter((value) => data.fact.some((row) => landingPageType(row) === value));
   const materialTypes = ["图文", "视频", "合创"].filter((value) => data.fact.some((row) => row.material_type === value));
   const videoSources = ["自产素材", "TT搬运"].filter((value) => data.fact.some((row) => row.video_source === value));
+  const videoSubtypes = [...new Set(data.fact.map((row) => row.video_subtype).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   setMultiOptions("country", countries, state.country);
   setMultiOptions("account", accounts, state.account);
   setMultiOptions("product", products, state.product);
@@ -801,6 +858,7 @@ function initFilters() {
   setMultiOptions("landingType", landingTypes, state.landingType);
   setMultiOptions("materialType", materialTypes, state.materialType);
   setMultiOptions("videoSource", videoSources, state.videoSource);
+  setMultiOptions("videoSubtype", videoSubtypes, state.videoSubtype);
 
   const minDate = data.summary.min_date;
   const maxDate = data.summary.max_date;
@@ -831,6 +889,7 @@ function initFilters() {
     el.classList.toggle("hidden", pendingTime.compareMode !== "custom");
   });
   updateApplyTimeButton();
+  updateDatePresetButtons();
 }
 
 function formatMetric(metric, value) {
@@ -858,7 +917,10 @@ function baseSummary() {
 }
 
 function summaryOf(rows) {
-  return aggregate(rows)[0] || baseSummary();
+  const summary = DashboardMetrics.summarizeRows(rows);
+  summary.reach = rows.reduce((sum, row) => sum + getMetric(row, "reach"), 0);
+  summary.cpm = summary.impressions ? (summary.spend / summary.impressions) * 1000 : 0;
+  return summary;
 }
 
 function insightTone(value, inverse = false) {
@@ -910,8 +972,8 @@ function renderActionInsights(fact, previousFact, context = {}) {
   const onsiteMismatch = onsiteProducts[0];
   const onsiteStrong = [...onsiteProducts].filter((row) => row.efficiency_index >= 1.2 && row.onsite_roas >= 1.8).sort((a, b) => b.shopify_sales - a.shopify_sales)[0];
   const unmatchedSales = shopifyRows.filter((row) => row.product_name === "未匹配").reduce((sum, row) => sum + getMetric(row, "net_sales"), 0);
-  const channelRows = filteredChannelRows(data.us_channel_product_daily);
-  const previousChannelRows = comparisonChannelRows(data.us_channel_product_daily);
+  const channelRows = filteredChannelRows();
+  const previousChannelRows = comparisonChannelRows();
   const channelSummary = channelAggregate(channelRows)[0] || { channel_sales: 0, channel_units: 0 };
   const previousChannelSummary = channelAggregate(previousChannelRows)[0] || { channel_sales: 0, channel_units: 0 };
   const topChannel = channelAggregate(channelRows, ["channel"]).sort((a, b) => b.channel_sales - a.channel_sales)[0];
@@ -998,27 +1060,6 @@ function renderActionInsights(fact, previousFact, context = {}) {
       overviewCards[2],
       overviewCards[3],
     ],
-    operator: [
-      {
-        label: "主要投手",
-        title: topOperator ? `${topOperator.operator} 贡献 ${pct(current.purchase_value ? topOperator.purchase_value / current.purchase_value : 0)}` : "暂无投手数据",
-        body: topOperator ? `销售额 ${money(topOperator.purchase_value)}，ROAS ${ratio(topOperator.roas)}，CPA ${money(topOperator.cpa)}。` : "当前筛选下没有投手数据。",
-        tone: "neutral",
-      },
-      {
-        label: "可复制组合",
-        title: bestCombo ? `${bestCombo.country} / ${bestCombo.product_name}` : "暂无可复制组合",
-        body: bestCombo ? `ROAS ${ratio(bestCombo.roas)}，转化 ${number(bestCombo.purchase_times)}，可看对应投手组合。` : "需要更多转化量后判断。",
-        tone: bestCombo ? "positive" : "neutral",
-      },
-      {
-        label: "组合风险",
-        title: operatorRisk ? `${operatorRisk.operator} / ${operatorRisk.product_name}` : "暂无组合风险",
-        body: operatorRisk ? `${operatorRisk.country} 花费 ${money(operatorRisk.spend)}，ROAS ${ratio(operatorRisk.roas)}，优先复盘。` : "当前投手组合没有明显风险。",
-        tone: operatorRisk ? "negative" : "neutral",
-      },
-      overviewCards[0],
-    ],
     landing: [
       {
         label: "主要承接",
@@ -1043,32 +1084,6 @@ function renderActionInsights(fact, previousFact, context = {}) {
         title: `落地页花费 ${deltaText(current.spend, previous.spend).text}`,
         body: `GMV ${deltaText(current.purchase_value, previous.purchase_value).text}，ROAS ${deltaText(current.roas, previous.roas).text}。`,
         tone: insightTone(roasDelta),
-      },
-    ],
-    onsite: [
-      {
-        label: "站内销售",
-        title: `Shopify净销售 ${money(shopify.net_sales)}`,
-        body: `订单 ${number(shopify.orders)}，客单 ${money(shopify.aov)}，净销量 ${number(shopify.net_items_sold)}。`,
-        tone: insightTone(deltaValue(shopify.net_sales, previousShopify.net_sales)),
-      },
-      {
-        label: "站内效率",
-        title: `站内ROAS ${ratio(onsiteRoas)}`,
-        body: `对比 ${deltaText(onsiteRoas, previousOnsiteRoas).text}，口径为 Shopify Net Sales / 广告花费。`,
-        tone: insightTone(deltaValue(onsiteRoas, previousOnsiteRoas)),
-      },
-      {
-        label: "占比偏差",
-        title: onsiteMismatch ? `${onsiteMismatch.product_name} ${pct(onsiteMismatch.share_gap)}` : "暂无占比偏差",
-        body: onsiteMismatch ? `站内销售占比 ${pct(onsiteMismatch.shopify_sales_share)}，广告花费占比 ${pct(onsiteMismatch.meta_spend_share)}。` : "当前筛选下站内销售与投放占比比较接近。",
-        tone: onsiteMismatch && Math.abs(onsiteMismatch.share_gap) > 0.08 ? "negative" : "neutral",
-      },
-      {
-        label: "可加码产品",
-        title: onsiteStrong ? `${onsiteStrong.product_name} 站内ROAS ${ratio(onsiteStrong.onsite_roas)}` : "暂无明确站内强项",
-        body: onsiteStrong ? `净销售 ${money(onsiteStrong.shopify_sales)}，效率指数 ${ratio(onsiteStrong.efficiency_index)}。` : `未匹配销售占比 ${pct(shopify.net_sales ? unmatchedSales / shopify.net_sales : 0)}，先完善映射。`,
-        tone: onsiteStrong ? "positive" : "neutral",
       },
     ],
     channels: [
@@ -1147,43 +1162,54 @@ function renderKpis(rows, previousRows, context = {}) {
   const previousCountryCount = new Set(previousRows.map((row) => row.country).filter(Boolean)).size;
   const productCount = new Set(rows.map((row) => row.product_name).filter(Boolean)).size;
   const previousProductCount = new Set(previousRows.map((row) => row.product_name).filter(Boolean)).size;
-  const operatorCount = new Set(rows.map((row) => row.operator).filter(Boolean)).size;
-  const previousOperatorCount = new Set(previousRows.map((row) => row.operator).filter(Boolean)).size;
   const currentMaterials = filteredMaterialInventoryRows();
   const previousMaterials = comparisonMaterialInventoryRows();
   const materialCount = new Set(currentMaterials.map(materialIdentity).filter(Boolean)).size;
   const previousMaterialCount = new Set(previousMaterials.map(materialIdentity).filter(Boolean)).size;
   const topCountry = aggregate(rows, ["country"]).sort((a, b) => b.purchase_value - a.purchase_value)[0];
   const topProduct = aggregate(rows, ["product_name"]).sort((a, b) => b.purchase_value - a.purchase_value)[0];
-  const topOperator = aggregate(rows, ["operator"]).sort((a, b) => b.spend - a.spend)[0];
   const materialRows = materialComparisonRows(rows, previousRows, currentMaterials, previousMaterials);
   const topMaterial = materialRows.filter((row) => !row.is_child).sort((a, b) => b.spend - a.spend)[0];
 
   if (state.view === "product") {
-    const standardProductCount = new Set(rows.map((row) => row.standard_product_name).filter(Boolean)).size;
-    const previousStandardProductCount = new Set(previousRows.map((row) => row.standard_product_name).filter(Boolean)).size;
-    const topStandardProduct = aggregate(rows, ["standard_product_name"]).sort((a, b) => b.purchase_value - a.purchase_value)[0];
-    const topForm = aggregate(rows, ["product_form"]).sort((a, b) => b.purchase_value - a.purchase_value)[0];
+    const productModel = context.productModel;
+    const productSummary = productModel?.summary || summary;
+    const previousProductSummary = productModel?.previousSummary || previous;
+    const modelRows = productModel?.detail || rows;
+    const previousModelRows = productModel?.previousDetail || previousRows;
+    const standardProductCount = new Set(modelRows.map((row) => row.standard_product_name).filter(Boolean)).size;
+    const previousStandardProductCount = new Set(previousModelRows.map((row) => row.standard_product_name).filter(Boolean)).size;
+    const topStandardProduct = [...modelRows].sort((a, b) => b.purchase_value - a.purchase_value)[0];
+    const topStructure = productModel?.structure?.[0];
+    const structureLabel = productModel?.segment === "form" ? "主力单品套组" : productModel?.segment === "material" ? "主力素材类型" : "主力产品";
     renderKpiItems([
       { label: "产品数", value: standardProductCount, previous: previousStandardProductCount, format: number, hint: "按标准产品名" },
       { label: "主力产品", value: topStandardProduct?.standard_product_name || "-", note: topStandardProduct ? `GMV ${money(topStandardProduct.purchase_value)}` : "当前周期", format: String, hint: "按 归因收入" },
-      { label: "主力类型", value: topForm?.product_form || "-", note: topForm ? `ROAS ${ratio(topForm.roas)}` : "当前周期", format: String, hint: "单品/套组" },
-      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
-      { label: "CVR", value: summary.cvr, previous: previous.cvr, format: pct, hint: "转化 / 点击" },
+      { label: structureLabel, value: topStructure?.[productModel?.dimension] || "-", note: topStructure ? `ROAS ${ratio(topStructure.roas)}` : "当前周期", format: String, hint: "当前分析维度" },
+      { label: "归因收入", value: productSummary.purchase_value, previous: previousProductSummary.purchase_value, format: money, hint: `${number(productSummary.purchase_times)} 转化` },
+      { label: "ROAS", value: productSummary.roas, previous: previousProductSummary.roas, format: ratio, hint: "归因收入 / 花费" },
+      { label: "CVR", value: productSummary.cvr, previous: previousProductSummary.cvr, format: pct, hint: "转化 / 点击" },
     ]);
     return;
   }
 
   if (state.view === "creative") {
-    const riskRows = aggregate(filteredRows(data.ads || []).map((row) => ({ ...row, material_name: materialName(row) })), ["material_name"])
+    const creativeModel = context.creativeModel;
+    const creativeSummary = creativeModel?.summary || summary;
+    const previousCreativeSummary = creativeModel?.previousSummary || previous;
+    const creativeMaterialCount = new Set((creativeModel?.detail || []).map(materialIdentity).filter(Boolean)).size;
+    const previousCreativeMaterialCount = new Set((creativeModel?.previousDetail || []).map(materialIdentity).filter(Boolean)).size;
+    const topSegment = creativeModel?.structure?.[0];
+    const segmentLabel = creativeModel ? creativeSegmentMeta(creativeModel).label : "素材类型";
+    const riskRows = aggregate((creativeModel?.detail || []).map((row) => ({ ...row, material_name: materialName(row) })), ["material_name"])
       .filter((row) => row.spend > 100 && row.roas < 1.3);
     renderKpiItems([
-      { label: "素材数", value: materialCount, previous: previousMaterialCount, format: number, hint: "唯一素材名/编号" },
-      { label: "素材花费", value: summary.spend, previous: previous.spend, format: money, hint: "广告花费" },
-      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
-      { label: "主要素材类型", value: topMaterial?.material_label || "-", note: topMaterial ? `花费占比 ${pct(topMaterial.spend_share)}` : "当前周期", format: String, hint: "按花费占比" },
+      { label: "素材数", value: creativeMaterialCount, previous: previousCreativeMaterialCount, format: number, hint: "唯一素材名/编号" },
+      { label: "素材花费", value: creativeSummary.spend, previous: previousCreativeSummary.spend, format: money, hint: "Meta 广告花费" },
+      { label: "归因收入", value: creativeSummary.purchase_value, previous: previousCreativeSummary.purchase_value, format: money, hint: `${number(creativeSummary.purchase_times)} 转化` },
+      { label: `主要${segmentLabel}`, value: topSegment?.[creativeModel?.dimension] || "-", note: topSegment ? `花费占比 ${pct(topSegment.spend_share)}` : "当前周期", format: String, hint: "按花费占比" },
       { label: "风险素材", value: riskRows.length, previous: undefined, format: number, hint: "花费>$100 且 ROAS<1.3", inverse: true },
-      { label: "CVR", value: summary.cvr, previous: previous.cvr, format: pct, hint: "转化 / 点击" },
+      { label: "CVR", value: creativeSummary.cvr, previous: previousCreativeSummary.cvr, format: pct, hint: "转化 / 点击" },
     ]);
     return;
   }
@@ -1194,18 +1220,6 @@ function renderKpis(rows, previousRows, context = {}) {
       { label: "最大国家", value: topCountry?.country || "-", note: topCountry ? `GMV ${money(topCountry.purchase_value)}` : "当前周期", format: String, hint: "按 归因收入" },
       { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
       { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: `${number(summary.impressions)} 展示` },
-      { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "归因收入 / 花费" },
-      { label: "CPA", value: summary.cpa, previous: previous.cpa, format: money, hint: "花费 / 转化", inverse: true },
-    ]);
-    return;
-  }
-
-  if (state.view === "operator") {
-    renderKpiItems([
-      { label: "投手数", value: operatorCount, previous: previousOperatorCount, format: number, hint: "当前筛选覆盖" },
-      { label: "主要投手", value: topOperator?.operator || "-", note: topOperator ? `花费 ${money(topOperator.spend)}` : "当前周期", format: String, hint: "按花费" },
-      { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: "投手投放规模" },
-      { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
       { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "归因收入 / 花费" },
       { label: "CPA", value: summary.cpa, previous: previous.cpa, format: money, hint: "花费 / 转化", inverse: true },
     ]);
@@ -1229,41 +1243,32 @@ function renderKpis(rows, previousRows, context = {}) {
     return;
   }
 
-  if (state.view === "onsite") {
-    const shopify = tableSummary(filteredShopifyRows());
-    const previousShopify = tableSummary(comparisonShopifyRows());
-    const onsiteRoas = summary.spend ? shopify.net_sales / summary.spend : 0;
-    const previousOnsiteRoas = previous.spend ? previousShopify.net_sales / previous.spend : 0;
-    const unmatchedSales = filteredShopifyRows().filter((row) => row.product_name === "未匹配").reduce((sum, row) => sum + getMetric(row, "net_sales"), 0);
-    renderKpiItems([
-      { label: "Shopify净销售", value: shopify.net_sales, previous: previousShopify.net_sales, format: money, hint: "站内 Net Sales" },
-      { label: "Shopify订单", value: shopify.orders, previous: previousShopify.orders, format: number, hint: "订单数" },
-      { label: "站内ROAS", value: onsiteRoas, previous: previousOnsiteRoas, format: ratio, hint: "Net Sales / 广告花费" },
-      { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: "投放端消耗" },
-      { label: "站内客单", value: shopify.aov, previous: previousShopify.aov, format: money, hint: "净销售 / 订单" },
-      { label: "未匹配占比", value: shopify.net_sales ? unmatchedSales / shopify.net_sales : 0, previous: undefined, format: pct, hint: "需补映射", inverse: true },
-    ]);
-    return;
-  }
-
   if (state.view === "channels") {
-    const channelRows = filteredChannelRows(data.us_channel_product_daily);
-    const previousChannelRows = comparisonChannelRows(data.us_channel_product_daily);
+    const channelRows = filteredChannelRows();
+    const previousChannelRows = comparisonChannelRows();
     const byChannel = new Map(channelAggregate(channelRows, ["channel"]).map((row) => [row.channel, row]));
     const previousByChannel = new Map(channelAggregate(previousChannelRows, ["channel"]).map((row) => [row.channel, row]));
-    const shopify = byChannel.get("Shopify US") || {};
-    const previousShopify = previousByChannel.get("Shopify US") || {};
-    const amazon = byChannel.get("Amazon US") || {};
-    const previousAmazon = previousByChannel.get("Amazon US") || {};
-    const tiktok = byChannel.get("TikTok US") || {};
-    const previousTiktok = previousByChannel.get("TikTok US") || {};
-    const topChannel = channelAggregate(channelRows, ["channel"]).sort((a, b) => b.channel_sales - a.channel_sales)[0];
+    const shopify = byChannel.get("Shopify");
+    const previousShopify = previousByChannel.get("Shopify");
+    const amazon = byChannel.get("Amazon");
+    const previousAmazon = previousByChannel.get("Amazon");
+    const tiktok = byChannel.get("TikTok");
+    const previousTiktok = previousByChannel.get("TikTok");
     const topProductChannel = channelAggregate(channelRows, ["channel", "product_name"]).sort((a, b) => b.channel_units - a.channel_units)[0];
+    const channelSalesKpi = (label, channel, current, previous, metricBasis) => ({
+      label,
+      value: hasChannelData(byChannel, channel) ? getMetric(current, "channel_sales") : "暂无数据",
+      previous: hasChannelData(byChannel, channel) && hasChannelData(previousByChannel, channel)
+        ? getMetric(previous, "channel_sales")
+        : undefined,
+      format: money,
+      hint: metricBasis,
+    });
     renderKpiItems([
       { label: "渠道数", value: new Set(channelRows.map((row) => row.channel)).size, previous: new Set(previousChannelRows.map((row) => row.channel)).size, format: number, hint: "当前筛选覆盖" },
-      { label: "Shopify销售额", value: getMetric(shopify, "channel_sales"), previous: getMetric(previousShopify, "channel_sales"), format: money, hint: "USD Net Sales" },
-      { label: "Amazon销售额", value: getMetric(amazon, "channel_sales"), previous: getMetric(previousAmazon, "channel_sales"), format: money, hint: "USD 原始GMV" },
-      { label: "TikTok销售额", value: getMetric(tiktok, "channel_sales"), previous: getMetric(previousTiktok, "channel_sales"), format: money, hint: "USD 原始GMV" },
+      channelSalesKpi("Shopify销售额", "Shopify", shopify, previousShopify, "Shopify Net Sales"),
+      channelSalesKpi("Amazon销售额", "Amazon", amazon, previousAmazon, "Source USD GMV"),
+      channelSalesKpi("TikTok销售额", "TikTok", tiktok, previousTiktok, "Source USD GMV"),
       { label: "三渠道销量", value: channelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), previous: previousChannelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), format: number, hint: "Units 汇总" },
       { label: "最高销量产品", value: topProductChannel?.product_name || "-", note: topProductChannel ? `${number(topProductChannel.channel_units)} 件` : "当前周期", format: String, hint: topProductChannel?.channel || "" },
     ]);
@@ -1284,7 +1289,44 @@ function renderComparison(currentRows, previousRows) {
   document.getElementById("comparison").innerHTML = "";
 }
 
-function renderInsightSummary(fact, previousFact) {
+function renderInsightSummary(fact, previousFact, context = {}) {
+  if (state.view === "channels") {
+    const channelRows = filteredChannelRows();
+    const topSalesProduct = channelAggregate(channelRows, ["product_name"])
+      .sort((a, b) => b.channel_sales - a.channel_sales)[0];
+    const topUnitsProduct = channelAggregate(channelRows, ["product_name"])
+      .sort((a, b) => b.channel_units - a.channel_units)[0];
+    document.getElementById("insightSummary").innerHTML = `
+      <article>
+        <span>最高销售产品</span>
+        <strong>${escapeHtml(topSalesProduct?.product_name || "-")} <small>${topSalesProduct ? money(topSalesProduct.channel_sales) : ""}</small></strong>
+      </article>
+      <article>
+        <span>最高销量产品</span>
+        <strong>${escapeHtml(topUnitsProduct?.product_name || "-")} <small>${topUnitsProduct ? `${number(topUnitsProduct.channel_units)} 件` : ""}</small></strong>
+      </article>
+    `;
+    return;
+  }
+  if (state.view === "creative" && context.creativeModel) {
+    const model = context.creativeModel;
+    const meta = creativeSegmentMeta(model);
+    const topSpend = model.structure[0];
+    const topRoas = [...model.structure]
+      .filter((row) => row.spend > 100)
+      .sort((left, right) => right.roas - left.roas)[0];
+    document.getElementById("insightSummary").innerHTML = `
+      <article>
+        <span>主要${escapeHtml(meta.label)}</span>
+        <strong>${escapeHtml(topSpend?.[model.dimension] || "-")} <small>${topSpend ? `花费占比 ${pct(topSpend.spend_share)}` : ""}</small></strong>
+      </article>
+      <article>
+        <span>高效${escapeHtml(meta.label)}</span>
+        <strong>${escapeHtml(topRoas?.[model.dimension] || "-")} <small>${topRoas ? `ROAS ${ratio(topRoas.roas)}` : ""}</small></strong>
+      </article>
+    `;
+    return;
+  }
   const topCountry = aggregate(fact, ["country"]).sort((a, b) => b.purchase_value - a.purchase_value)[0];
   const topProduct = aggregate(fact, ["product_name"]).sort((a, b) => b.purchase_value - a.purchase_value)[0];
   const bestProduct = aggregate(fact, ["product_name"]).filter((row) => row.spend > 100 && row.purchase_times >= 3).sort((a, b) => b.roas - a.roas)[0];
@@ -1300,13 +1342,23 @@ function renderInsightSummary(fact, previousFact) {
   `;
 }
 
+function responsiveChartWidth(el) {
+  return Math.max(300, Math.floor(Number(el?.clientWidth || 0) - 28));
+}
+
+function responsiveTickStep(itemCount, width, pad) {
+  const plotWidth = Math.max(width - pad.left - pad.right, 1);
+  const maxTicks = Math.max(2, Math.floor(plotWidth / 56));
+  return Math.max(1, Math.ceil(Math.max(itemCount - 1, 1) / Math.max(maxTicks - 1, 1)));
+}
+
 function renderLineChart(id, rows, metric) {
   const el = document.getElementById(id);
   if (!rows.length) {
     el.innerHTML = "";
     return;
   }
-  const width = Math.max(960, rows.length * 34);
+  const width = responsiveChartWidth(el);
   const height = 330;
   const pad = { top: 18, right: 24, bottom: 54, left: 64 };
   const values = rows.map((row) => Number(row[metric] || 0));
@@ -1322,7 +1374,7 @@ function renderLineChart(id, rows, metric) {
     return `<line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${yy}" y2="${yy}" />
       <text x="8" y="${yy + 4}">${formatMetric(metric, val)}</text>`;
   }).join("");
-  const tickStep = rows.length <= 31 ? 2 : Math.ceil(rows.length / 14);
+  const tickStep = responsiveTickStep(rows.length, width, pad);
   const ticks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0).map((row) => {
     const originalIndex = rows.indexOf(row);
     return `<text class="x-tick" x="${x(originalIndex)}" y="${height - 18}" text-anchor="end" transform="rotate(-35 ${x(originalIndex)} ${height - 18})">${row.date_start.slice(5)}</text>`;
@@ -1347,7 +1399,7 @@ function renderLineChart(id, rows, metric) {
     `;
   }).join("");
   el.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="${metricLabels[metric]}趋势">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metricLabels[metric]}趋势">
       <g class="axis">${grid}${ticks}</g>
       <polygon class="area" points="${area}"></polygon>
       <polyline class="line" points="${points}"></polyline>
@@ -1376,10 +1428,10 @@ function renderTrendConclusion(id, rows, metric) {
   `;
 }
 
-function renderCountryTrendConclusion(factRows) {
+function renderCountryTrendConclusion(countryRows) {
   const el = document.getElementById("countryTrendConclusion");
   if (!el) return;
-  const countryProducts = aggregate(factRows, ["country", "product_name"]).filter((row) => row.spend > 50);
+  const countryProducts = countryRows.filter((row) => row.spend > 50);
   if (!countryProducts.length) {
     el.innerHTML = `<p class="empty">当前筛选下没有国家产品数据。</p>`;
     return;
@@ -1389,85 +1441,9 @@ function renderCountryTrendConclusion(factRows) {
   const weak = [...countryProducts].filter((row) => row.spend > 200 && row.purchase_times > 0).sort((a, b) => a.roas - b.roas)[0];
   el.innerHTML = `
     <strong>国家产品结论</strong>
-    <p>贡献最高是 ${escapeHtml(topSales.country)} / ${escapeHtml(topSales.product_name)}，GMV ${money(topSales.purchase_value)}，ROAS ${ratio(topSales.roas)}。</p>
-    ${best ? `<p>效率最好是 ${escapeHtml(best.country)} / ${escapeHtml(best.product_name)}，ROAS ${ratio(best.roas)}，可优先看素材复用。</p>` : ""}
-    ${weak ? `<p>表现偏弱是 ${escapeHtml(weak.country)} / ${escapeHtml(weak.product_name)}，花费 ${money(weak.spend)}，ROAS ${ratio(weak.roas)}。</p>` : ""}
-  `;
-}
-
-function renderCountryQuickFilters(factRows) {
-  const el = document.getElementById("countryTrendQuickFilters");
-  if (!el) return;
-  const topCountries = aggregate(factRows, ["country"]).sort((a, b) => b.purchase_value - a.purchase_value).slice(0, 6);
-  const topProducts = aggregate(factRows, ["product_name"]).sort((a, b) => b.purchase_value - a.purchase_value).slice(0, 6);
-  const buttons = [
-    `<span>国家</span>`,
-    ...topCountries.map((row) => `<button data-filter-key="country" data-filter-value="${escapeHtml(row.country)}">${escapeHtml(row.country)}</button>`),
-    `<span>产品</span>`,
-    ...topProducts.map((row) => `<button data-filter-key="product_name" data-filter-value="${escapeHtml(row.product_name)}">${escapeHtml(row.product_name)}</button>`),
-  ];
-  el.innerHTML = buttons.join("");
-}
-
-function renderDualLineChart(id, rows, leftMetric, rightMetric) {
-  const el = document.getElementById(id);
-  if (!rows.length) {
-    el.innerHTML = `<p class="empty">当前筛选下没有趋势数据。</p>`;
-    return;
-  }
-  const width = Math.max(940, rows.length * 31);
-  const height = 370;
-  const pad = { top: 18, right: 24, bottom: 76, left: 64 };
-  const leftValues = rows.map((row) => Number(row[leftMetric] || 0));
-  const rightValues = rows.map((row) => Number(row[rightMetric] || 0));
-  const max = Math.max(...leftValues, ...rightValues, 1);
-  const x = (index) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(rows.length - 1, 1);
-  const y = (value) => height - pad.bottom - (value * (height - pad.top - pad.bottom)) / max;
-  const points = (metric) => rows.map((row, index) => `${x(index)},${y(Number(row[metric] || 0))}`).join(" ");
-  const grid = [0, 0.25, 0.5, 0.75, 1].map((step) => {
-    const yy = pad.top + step * (height - pad.top - pad.bottom);
-    const val = max - step * max;
-    return `<line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${yy}" y2="${yy}" />
-      <text x="8" y="${yy + 4}">${number(val)}</text>`;
-  }).join("");
-  const tickStep = rows.length <= 31 ? 2 : Math.ceil(rows.length / 14);
-  const ticks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0).map((row) => {
-    const originalIndex = rows.indexOf(row);
-    return `<text class="x-tick" x="${x(originalIndex)}" y="${height - 28}" text-anchor="end" transform="rotate(-35 ${x(originalIndex)} ${height - 28})">${row.date_start.slice(5)}</text>`;
-  }).join("");
-  const hoverPoints = rows.map((row, index) => {
-    const metaValue = Number(row[leftMetric] || 0);
-    const shopifyValue = Number(row[rightMetric] || 0);
-    const cx = x(index);
-    const cy = y(Math.max(metaValue, shopifyValue));
-    return `
-      <g class="chart-point" tabindex="0">
-        <line class="hover-guide" x1="${cx}" x2="${cx}" y1="${pad.top}" y2="${height - pad.bottom}"></line>
-        <circle class="point-hit" cx="${cx}" cy="${y(metaValue)}" r="13"></circle>
-        <circle class="point-hit" cx="${cx}" cy="${y(shopifyValue)}" r="13"></circle>
-        <circle class="point-dot meta-point" cx="${cx}" cy="${y(metaValue)}" r="3.5"></circle>
-        <circle class="point-dot shopify-point" cx="${cx}" cy="${y(shopifyValue)}" r="3.5"></circle>
-        <g class="chart-tooltip" transform="translate(${Math.min(Math.max(cx - 82, 8), width - 172)} ${cy > 84 ? cy - 66 : cy + 18})">
-          <rect width="164" height="56" rx="6"></rect>
-          <text x="10" y="17">${escapeHtml(row.date_start)}</text>
-          <text x="10" y="33">Meta ${escapeHtml(money(metaValue))}</text>
-          <text x="10" y="48">Shopify ${escapeHtml(money(shopifyValue))}</text>
-        </g>
-        <title>${escapeHtml(`${row.date_start} · Meta ${money(metaValue)} · Shopify ${money(shopifyValue)}`)}</title>
-      </g>
-    `;
-  }).join("");
-  el.innerHTML = `
-    <div class="dual-legend">
-      <span><i class="legend-dot meta-dot"></i>归因收入</span>
-      <span><i class="legend-dot shopify-dot"></i>Shopify 净销售</span>
-    </div>
-    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="归因收入 和 Shopify 净销售趋势">
-      <g class="axis">${grid}${ticks}</g>
-      <polyline class="line meta-line" points="${points(leftMetric)}"></polyline>
-      <polyline class="line shopify-line" points="${points(rightMetric)}"></polyline>
-      ${hoverPoints}
-    </svg>
+    <p>贡献最高是 ${escapeHtml(topSales.country)} / ${escapeHtml(topSales.standard_product_name)}，GMV ${money(topSales.purchase_value)}，ROAS ${ratio(topSales.roas)}。</p>
+    ${best ? `<p>效率最好是 ${escapeHtml(best.country)} / ${escapeHtml(best.standard_product_name)}，ROAS ${ratio(best.roas)}，可优先看素材复用。</p>` : ""}
+    ${weak ? `<p>表现偏弱是 ${escapeHtml(weak.country)} / ${escapeHtml(weak.standard_product_name)}，花费 ${money(weak.spend)}，ROAS ${ratio(weak.roas)}。</p>` : ""}
   `;
 }
 
@@ -1475,15 +1451,15 @@ function renderChannelLineChart(id, rows) {
   const el = document.getElementById(id);
   if (!el) return;
   if (!rows.length) {
-    el.innerHTML = `<p class="empty">当前筛选下没有美国三渠道销售数据。</p>`;
+    el.innerHTML = `<p class="empty">当前筛选下没有${escapeHtml(channelTrendTitle())}数据。</p>`;
     return;
   }
-  const channelOrder = ["Shopify US", "Amazon US", "TikTok US"];
+  const channelOrder = ["Shopify", "Amazon", "TikTok"];
   const channels = channelOrder.filter((channel) => rows.some((row) => row.channel === channel));
   const colors = {
-    "Shopify US": "#047857",
-    "Amazon US": "#a16207",
-    "TikTok US": "#2563eb",
+    Shopify: "#047857",
+    Amazon: "#a16207",
+    TikTok: "#2563eb",
   };
   const dates = [...new Set(rows.map((row) => row.date_start))].sort();
   const byKey = new Map(rows.map((row) => [`${row.date_start}||${row.channel}`, row]));
@@ -1492,13 +1468,13 @@ function renderChannelLineChart(id, rows) {
     values: dates.map((date) => ({
       date_start: date,
       channel,
-      value: getMetric(byKey.get(`${date}||${channel}`), "channel_sales"),
+      value: byKey.has(`${date}||${channel}`) ? getMetric(byKey.get(`${date}||${channel}`), "channel_sales") : null,
     })),
   }));
-  const width = Math.max(980, dates.length * 32);
+  const width = responsiveChartWidth(el);
   const height = 380;
   const pad = { top: 18, right: 24, bottom: 76, left: 64 };
-  const max = Math.max(...series.flatMap((line) => line.values.map((point) => point.value)), 1);
+  const max = Math.max(...series.flatMap((line) => line.values.map((point) => point.value).filter((value) => value !== null)), 1);
   const x = (index) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(dates.length - 1, 1);
   const y = (value) => height - pad.bottom - (value * (height - pad.top - pad.bottom)) / max;
   const grid = [0, 0.25, 0.5, 0.75, 1].map((step) => {
@@ -1507,34 +1483,37 @@ function renderChannelLineChart(id, rows) {
     return `<line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${yy}" y2="${yy}" />
       <text x="8" y="${yy + 4}">${money(val)}</text>`;
   }).join("");
-  const tickStep = dates.length <= 31 ? 2 : Math.ceil(dates.length / 14);
+  const tickStep = responsiveTickStep(dates.length, width, pad);
   const ticks = dates.filter((_, index) => index === 0 || index === dates.length - 1 || index % tickStep === 0).map((date) => {
     const index = dates.indexOf(date);
     return `<text class="x-tick" x="${x(index)}" y="${height - 28}" text-anchor="end" transform="rotate(-35 ${x(index)} ${height - 28})">${date.slice(5)}</text>`;
   }).join("");
   const lines = series.map((line) => {
-    const points = line.values.map((point, index) => `${x(index)},${y(point.value)}`).join(" ");
+    const points = line.values
+      .filter((point) => point.value !== null)
+      .map((point) => `${x(dates.indexOf(point.date_start))},${y(point.value)}`)
+      .join(" ");
     return `<polyline class="line" style="stroke:${colors[line.channel]}" points="${points}"></polyline>`;
   }).join("");
   const hoverPoints = dates.map((date, index) => {
     const values = channels.map((channel) => ({
       channel,
-      value: getMetric(byKey.get(`${date}||${channel}`), "channel_sales"),
+      value: byKey.has(`${date}||${channel}`) ? getMetric(byKey.get(`${date}||${channel}`), "channel_sales") : null,
     }));
     const cx = x(index);
-    const topValue = Math.max(...values.map((item) => item.value), 0);
+    const topValue = Math.max(...values.map((item) => item.value).filter((value) => value !== null), 0);
     const cy = y(topValue);
     return `
       <g class="chart-point" tabindex="0">
         <line class="hover-guide" x1="${cx}" x2="${cx}" y1="${pad.top}" y2="${height - pad.bottom}"></line>
-        ${values.map((item) => `<circle class="point-hit" cx="${cx}" cy="${y(item.value)}" r="13"></circle>
+        ${values.filter((item) => item.value !== null).map((item) => `<circle class="point-hit" cx="${cx}" cy="${y(item.value)}" r="13"></circle>
           <circle class="point-dot" style="stroke:${colors[item.channel]}" cx="${cx}" cy="${y(item.value)}" r="3.5"></circle>`).join("")}
         <g class="chart-tooltip channel-tooltip" transform="translate(${Math.min(Math.max(cx - 96, 8), width - 200)} ${cy > 104 ? cy - 86 : cy + 18})">
           <rect width="192" height="76" rx="6"></rect>
           <text x="10" y="17">${escapeHtml(date)}</text>
-          ${values.map((item, lineIndex) => `<text x="10" y="${35 + lineIndex * 15}">${escapeHtml(item.channel)} ${escapeHtml(channelMoney(item.value, item.channel))}</text>`).join("")}
+          ${values.map((item, lineIndex) => `<text x="10" y="${35 + lineIndex * 15}">${escapeHtml(item.channel)} ${escapeHtml(item.value === null ? "暂无数据" : channelMoney(item.value, item.channel))}</text>`).join("")}
         </g>
-        <title>${escapeHtml(`${date} · ${values.map((item) => `${item.channel} ${channelMoney(item.value, item.channel)}`).join(" · ")}`)}</title>
+        <title>${escapeHtml(`${date} · ${values.map((item) => `${item.channel} ${item.value === null ? "暂无数据" : channelMoney(item.value, item.channel)}`).join(" · ")}`)}</title>
       </g>
     `;
   }).join("");
@@ -1542,7 +1521,7 @@ function renderChannelLineChart(id, rows) {
     <div class="dual-legend">
       ${channels.map((channel) => `<span><i class="legend-dot" style="background:${colors[channel]}"></i>${escapeHtml(channel)}</span>`).join("")}
     </div>
-    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="美国三渠道每日销售趋势，三渠道均按美元展示">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(channelTrendTitle())}，Shopify 为 Net Sales，Amazon 和 TikTok 为 Source USD GMV">
       <g class="axis">${grid}${ticks}</g>
       ${lines}
       ${hoverPoints}
@@ -1550,51 +1529,24 @@ function renderChannelLineChart(id, rows) {
   `;
 }
 
-function renderUsChannelConclusion(rows) {
+function renderChannelConclusion(rows) {
   const el = document.getElementById("usChannelTrendConclusion");
   if (!el) return;
   if (!rows.length) {
-    el.innerHTML = `<p class="empty">当前筛选下没有美国三渠道销售数据。</p>`;
+    el.innerHTML = `<p class="empty">当前筛选下没有${escapeHtml(channelTrendTitle())}数据。</p>`;
     return;
   }
   const channelRows = channelAggregate(rows, ["channel"]).sort((a, b) => b.channel_sales - a.channel_sales);
-  const latestByChannel = channelRows.map((row) => {
-    const latest = rows.filter((item) => item.channel === row.channel && getMetric(item, "channel_sales") > 0)
+  const latestByChannel = ["Shopify", "Amazon", "TikTok"].map((channel) => {
+    const latest = rows.filter((item) => item.channel === channel)
       .sort((a, b) => String(b.date_start).localeCompare(String(a.date_start)))[0];
-    return `${row.channel} ${latest?.date_start || "无数据"}`;
+    return `${channel} ${latest?.date_start || "暂无数据"}`;
   }).join("；");
   const top = channelRows[0];
-  const total = channelRows.reduce((sum, row) => sum + getMetric(row, "channel_sales"), 0);
   el.innerHTML = `
-    <strong>三渠道结论</strong>
-    <p>${escapeHtml(top.channel)} 当前销售额最高，为 ${channelMoney(top.channel_sales, top)}；三渠道均按美元展示。</p>
-    <p>最后有数据日期：${escapeHtml(latestByChannel)}。TikTok 使用源表原始美元 GMV，不做汇率换算。</p>
-  `;
-}
-
-function renderOnsiteTrendConclusion(rows) {
-  const el = document.getElementById("onsiteTrendConclusion");
-  if (!el) return;
-  if (!rows.length) {
-    el.innerHTML = `<p class="empty">当前筛选下没有站内趋势数据。</p>`;
-    return;
-  }
-  const totals = rows.reduce((sum, row) => ({
-    meta_sales: sum.meta_sales + getMetric(row, "meta_sales"),
-    shopify_sales: sum.shopify_sales + getMetric(row, "shopify_sales"),
-  }), { meta_sales: 0, shopify_sales: 0 });
-  const gapRows = rows.map((row) => ({
-    ...row,
-    gap: getMetric(row, "shopify_sales") - getMetric(row, "meta_sales"),
-  }));
-  const strongest = [...gapRows].sort((a, b) => b.gap - a.gap)[0];
-  const weakest = [...gapRows].sort((a, b) => a.gap - b.gap)[0];
-  const ratioToMeta = totals.meta_sales ? totals.shopify_sales / totals.meta_sales : 0;
-  const tone = ratioToMeta >= 1 ? "up" : "down";
-  el.innerHTML = `
-    <strong>站内趋势结论</strong>
-    <p>本周期 Shopify 净销售 / 归因收入 为 <span class="${tone}">${ratio(ratioToMeta)}</span>，用于判断站内承接是否跟上投放端。</p>
-    <p>站内跑赢最明显是 ${escapeHtml(strongest.date_start)}，差额 ${money(strongest.gap)}；偏弱日期是 ${escapeHtml(weakest.date_start)}，差额 ${money(weakest.gap)}。</p>
+    <strong>${escapeHtml(channelMarketLabel())}多渠道结论</strong>
+    <p>国家：${escapeHtml(channelMarketCountries().join("、"))}。${escapeHtml(top.channel)} 当前销售额最高，为 ${channelMoney(top.channel_sales, top)}。</p>
+    <p>最后有数据日期：${escapeHtml(latestByChannel)}。Shopify 为 Net Sales；Amazon 和 TikTok 为 Source USD GMV。</p>
   `;
 }
 
@@ -1880,7 +1832,7 @@ function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
   }
   const categories = [...new Set(rows.map((row) => row[categoryKey] || "Unknown"))].slice(0, options.limit || 4);
   const dates = [...new Set(rows.map((row) => row.date_start))].sort();
-  const width = Math.max(900, dates.length * 30);
+  const width = responsiveChartWidth(el);
   const height = 330;
   const pad = { top: 20, right: 28, bottom: 62, left: 64 };
   const byKey = new Map(rows.map((row) => [`${row.date_start}||${row[categoryKey] || "Unknown"}`, row]));
@@ -1888,7 +1840,7 @@ function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
   const x = (index) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(dates.length - 1, 1);
   const y = (value) => height - pad.bottom - (value * (height - pad.top - pad.bottom)) / max;
   const palette = ["#0b6f6a", "#2563eb", "#a16207", "#b45309"];
-  const tickStep = dates.length <= 31 ? 2 : Math.ceil(dates.length / 14);
+  const tickStep = responsiveTickStep(dates.length, width, pad);
   const ticks = dates.filter((_, index) => index === 0 || index === dates.length - 1 || index % tickStep === 0).map((date) => {
     const index = dates.indexOf(date);
     return `<text class="x-tick" x="${x(index)}" y="${height - 20}" text-anchor="end" transform="rotate(-35 ${x(index)} ${height - 20})">${date.slice(5)}</text>`;
@@ -1919,7 +1871,7 @@ function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
     <div class="dual-legend">
       ${categories.map((category, index) => `<span><i class="legend-dot" style="background:${palette[index % palette.length]}"></i>${escapeHtml(category)}</span>`).join("")}
     </div>
-    <svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="img" aria-label="${metricLabels[metric]}分类型趋势">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metricLabels[metric]}分类型趋势">
       <g class="axis">${grid}${ticks}</g>
       ${lines}
     </svg>
@@ -1937,11 +1889,11 @@ function renderChannelProductMix(id, rows) {
     el.innerHTML = `<p class="empty">当前筛选下没有渠道产品销量数据。</p>`;
     return;
   }
-  const channelOrder = ["Shopify US", "Amazon US", "TikTok US"];
+  const channelOrder = ["Shopify", "Amazon", "TikTok"];
   const colors = {
-    "Shopify US": "#047857",
-    "Amazon US": "#a16207",
-    "TikTok US": "#2563eb",
+    Shopify: "#047857",
+    Amazon: "#a16207",
+    TikTok: "#2563eb",
   };
   const byProduct = new Map();
   for (const row of rows) {
@@ -1989,12 +1941,6 @@ function renderChannelProductMix(id, rows) {
   `;
 }
 
-function statusClass(row) {
-  if (row.roas >= 2.2) return "good";
-  if (row.roas < 1.2 && row.spend > 300) return "bad";
-  return "warn";
-}
-
 function efficiencyLabel(row) {
   const roas = getMetric(row, "roas");
   const spend = getMetric(row, "spend");
@@ -2006,35 +1952,22 @@ function efficiencyLabel(row) {
 }
 
 function renderTable(id, rows, columns, limit = 80, options = {}) {
-  const visible = rows.slice(0, limit);
-  const head = columns.map((col) => {
-    const sortable = options.sortGroup && col.sortable !== false;
-    const active = sortable && state.googleSort[options.sortGroup]?.key === col.key;
-    const direction = active ? state.googleSort[options.sortGroup].direction : "";
-    const label = sortable
-      ? `<button type="button" class="google-sort-button ${active ? "active" : ""}" data-google-sort="${options.sortGroup}" data-google-sort-key="${col.key}" aria-label="按${escapeHtml(col.label)}排序">${col.label}<span aria-hidden="true">${direction === "asc" ? "↑" : (direction === "desc" ? "↓" : "↕")}</span></button>`
-      : col.label;
-    return `<th class="${col.num ? "num" : ""} ${col.sticky ? "sticky-col" : ""}">${label}</th>`;
-  }).join("");
-  const body = visible.map((row) => `
-    <tr class="${escapeHtml(row._rowClass || "")}">
-      ${columns.map((col) => {
-        const raw = col.value ? col.value(row) : row[col.key];
-        const val = col.format ? (col.format.length > 1 ? col.format(raw, row) : col.format(raw)) : escapeHtml(raw);
-        const dataLabel = escapeHtml(col.label);
-        const filterKey = tableFilterKey(col);
-        const filterAttrs = filterKey && raw ? ` data-filter-key="${filterKey}" data-filter-value="${escapeHtml(raw)}"` : "";
-        const content = filterKey && raw ? `<a class="cell-filter-button"${filterAttrs} href="${filterHref(filterKey, raw)}">${val}</a>` : val;
-        return `<td data-label="${dataLabel}" class="${col.num ? "num" : ""} ${col.name ? "name-cell" : ""} ${col.sticky ? "sticky-col" : ""} ${filterKey ? "click-cell" : ""}">${content}</td>`;
-      }).join("")}
-    </tr>
-  `).join("");
   const summaryRows = options.summaryRows || rows;
-  const previousSummaryRows = options.previousSummaryRows || [];
-  const summaryData = tableSummary(summaryRows);
-  const previousSummaryData = previousSummaryRows.length ? tableSummary(previousSummaryRows) : null;
-  const summary = summaryRows.length ? `<tfoot><tr>${columns.map((col, index) => renderSummaryCell(col, summaryData, index, previousSummaryData)).join("")}</tr></tfoot>` : "";
-  document.getElementById(id).innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>${summary}`;
+  DashboardTable.render(document.getElementById(id), rows, columns, {
+    ...options,
+    limit,
+    visibleRowCount: 10,
+    summaryRows,
+    sort: options.sortGroup ? {
+      ...state.googleSort[options.sortGroup],
+      group: options.sortGroup,
+    } : null,
+    escapeHtml,
+    getDimensionKey: tableFilterKey,
+    dimensionHref: filterHref,
+    summarizeRows: tableSummary,
+    renderSummaryCell,
+  });
   setTableInsight(id, options.insight || tableInsight(id, rows, summaryRows));
 }
 
@@ -2091,38 +2024,10 @@ function tableInsight(id, rows, summaryRows = rows) {
       const top = topBy("spend");
       return `当前素材筛选下，${label(top, ["product_name"])} 花费最高，为 ${money(top.spend)}。${bestRoas ? `${label(bestRoas, ["product_name"])} ROI 最好，ROI ${ratio(bestRoas.roas)}。` : ""}`;
     }
-    case "productNameTable": {
-      const top = topBy("purchase_value");
-      return `${label(top, ["standard_product_name"])} 是当前最大产品，GMV ${money(top.purchase_value)}、占比 ${pct(top.sales_share)}。${bestRoas ? `效率较好的是 ${label(bestRoas, ["standard_product_name"])}，ROAS ${ratio(bestRoas.roas)}。` : ""}`;
-    }
-    case "productFormTable": {
-      const top = topBy("purchase_value");
-      return `${label(top, ["product_form"])} 当前贡献最高，GMV ${money(top.purchase_value)}、ROAS ${ratio(top.roas)}。可用它判断单品素材还是套组素材更值得加码。`;
-    }
-    case "productCountryTable": {
-      const top = topBy("purchase_value");
-      return `产品国家组合里，${label(top, ["standard_product_name", "country"])} GMV 最高，为 ${money(top.purchase_value)}。${lowRoas ? `${label(lowRoas, ["standard_product_name", "country"])} 花费 ${money(lowRoas.spend)}、ROAS ${ratio(lowRoas.roas)}，需复盘国家承接。` : ""}`;
-    }
-    case "productMaterialTypeTable": {
-      const top = topBy("spend");
-      return `产品素材组合里，${label(top, ["standard_product_name", "material_type"])} 消耗最高，为 ${money(top.spend)}。${bestRoas ? `高效组合是 ${label(bestRoas, ["standard_product_name", "material_type"])}，ROAS ${ratio(bestRoas.roas)}。` : ""}`;
-    }
-    case "standardProductTable": {
-      const top = topBy("purchase_value");
-      return `标准产品里，${label(top, ["standard_product_name"])} GMV 最高，为 ${money(top.purchase_value)}。点击标准产品或单品/套组可继续交叉过滤。`;
-    }
     case "creativeTable": {
       const top = topBy("spend");
       const riskCount = rows.filter((row) => getMetric(row, "spend") > 100 && getMetric(row, "roas") < 1.3).length;
       return `素材明细按花费排序，首位素材花费 ${money(top.spend)}、ROAS ${ratio(top.roas)}。当前有 ${number(riskCount)} 条高花费低 ROAS 素材需复查。`;
-    }
-    case "operatorProductTable": {
-      const top = topBy("spend");
-      return `投手产品组合里，${label(top, ["operator", "product_name"])} 花费最高，为 ${money(top.spend)}。${bestRoas ? `高效组合为 ${label(bestRoas, ["operator", "product_name"])}，ROAS ${ratio(bestRoas.roas)}。` : ""}`;
-    }
-    case "operatorCountryTable": {
-      const top = topBy("spend");
-      return `投手国家组合里，${label(top, ["operator", "country"])} 花费最高，为 ${money(top.spend)}。${bestRoas ? `高效组合为 ${label(bestRoas, ["operator", "country"])}，ROAS ${ratio(bestRoas.roas)}。` : ""}`;
     }
     case "landingTypeTable": {
       const top = topBy("spend");
@@ -2141,34 +2046,16 @@ function tableInsight(id, rows, summaryRows = rows) {
       const top = topBy("purchase_value");
       return `落地页素材中，${label(top, ["landing_type", "material_name"])} 贡献最高，GMV ${money(top.purchase_value)}、ROAS ${ratio(top.roas)}。`;
     }
-    case "onsiteCountryTable": {
-      const gap = [...rows].sort((a, b) => Math.abs(getMetric(b, "share_gap")) - Math.abs(getMetric(a, "share_gap")))[0];
-      return `站内净销售合计 ${money(summary.shopify_sales)}，广告花费合计 ${money(summary.spend)}。占比偏差最大的是 ${label(gap, ["country"])}，需判断是否加码或降投。`;
-    }
-    case "onsiteProductComparisonTable": {
-      const top = topBy("shopify_sales");
-      return `站内产品销售最高是 ${label(top, ["product_name"])}，净销售 ${money(top.shopify_sales)}。重点看净销售占比和 广告花费占比是否匹配。`;
-    }
-    case "onsiteProductTable": {
-      const top = topBy("shopify_sales");
-      return `国家 x 产品层面，${label(top, ["country", "product_name"])} 站内净销售最高。效率指数高于 1 代表站内占比跑赢投放占比。`;
-    }
     case "usChannelProductTable": {
       const top = topBy("channel_sales");
       const topUnit = topBy("channel_units");
-      return `美国三渠道里，${label(top, ["channel", "product_name"])} 原始销售额最高，为 ${channelMoney(top.channel_sales, top)}。销量最高是 ${label(topUnit, ["channel", "product_name"])}，共 ${number(topUnit.channel_units)} 件。`;
+      return `${channelMarketLabel()}多渠道里，${label(top, ["channel", "product_name"])} 原始销售额最高，为 ${channelMoney(top.channel_sales, top)}。销量最高是 ${label(topUnit, ["channel", "product_name"])}，共 ${number(topUnit.channel_units)} 件。`;
     }
     case "usChannelSummaryTable": {
       const top = topBy("channel_sales");
       const topUnit = topBy("channel_units");
       return `当前渠道原始销售额最高是 ${label(top, ["channel"])}，销售额 ${channelMoney(top.channel_sales, top)}；销量最高是 ${label(topUnit, ["channel"])}，共 ${number(topUnit.channel_units)} 件。`;
     }
-    case "onsiteRawProductTable": {
-      const top = topBy("net_sales");
-      return `原始商品用于校验映射，当前最高商品是 ${label(top, ["product_title"])}，净销售 ${money(top.net_sales)}。`;
-    }
-    case "onsiteUnmatchedTable":
-      return `未匹配商品用于后续补产品映射；若净销售额较高，应优先补充映射规则。`;
     default:
       return "";
   }
@@ -2328,8 +2215,9 @@ function renderSummaryCell(col, summary, index, previousSummary = null) {
 
 function applyContentFilter(key, value) {
   if (key === "region") {
-    state.country = countriesForRegion(value);
-    updateMultiButton("country");
+    state.countryRegion = state.countryRegion === value ? "ALL" : value;
+    state.country = state.countryRegion === "ALL" ? [] : countriesForRegion(value);
+    syncMultiSelection("country");
     render();
     return;
   }
@@ -2344,6 +2232,7 @@ function applyContentFilter(key, value) {
     landing_type: "landingType",
     material_type: "materialType",
     video_source: "videoSource",
+    video_subtype: "videoSubtype",
     material_name: "materialName",
     ad_name: "adName",
     googleAdTypes: "googleAdTypes",
@@ -2352,8 +2241,9 @@ function applyContentFilter(key, value) {
   };
   const stateKey = mapping[key];
   if (!stateKey || !value) return;
+  if (stateKey === "country") state.countryRegion = "ALL";
   state[stateKey] = [value];
-  updateMultiButton(stateKey);
+  syncMultiSelection(stateKey);
   if (stateKey.startsWith("google")) {
     renderGoogleAttributionDetail();
     return;
@@ -2487,49 +2377,6 @@ function renderAlerts(fact) {
   `).join("") : `<p class="empty">当前筛选下没有明显异常。</p>`;
 }
 
-function creativeCard(row) {
-  return `
-    <article class="creative-card ${statusClass(row)}">
-      <div class="creative-card-head">
-        <div class="tag-row">
-          <span class="tag">${escapeHtml(row.product_name)}</span>
-          <span class="tag material-tag">${escapeHtml(row.material_name || materialName(row))}</span>
-          ${row.video_source ? `<span class="tag">${escapeHtml(row.video_source)}</span>` : ""}
-        </div>
-        <strong>${ratio(row.roas)} ROAS</strong>
-      </div>
-      <p>${escapeHtml(row.ad_name)}</p>
-      <div class="creative-metrics">
-        <span>${money(row.spend)} 花费</span>
-        <span>${number(row.purchase_times)} 转化</span>
-        <span>${pct(row.ctr)} CTR</span>
-        <span>${pct(row.cvr)} CVR</span>
-        <span>${money(row.cpa)} CPA</span>
-      </div>
-    </article>
-  `;
-}
-
-function renderCreativeGroups(rows) {
-  const eligible = rows.filter((row) => row.spend > 100);
-  const highSpend = [...eligible].sort((a, b) => b.spend - a.spend).slice(0, 5);
-  const highRoas = [...eligible].filter((row) => row.purchase_times >= 3).sort((a, b) => b.roas - a.roas).slice(0, 5);
-  const risk = [...eligible].filter((row) => row.roas < 1.3 || (row.ctr > 0.025 && row.roas < 1.8)).sort((a, b) => b.spend - a.spend).slice(0, 5);
-  document.getElementById("highSpendCreatives").innerHTML = highSpend.map(creativeCard).join("");
-  document.getElementById("highRoasCreatives").innerHTML = highRoas.map(creativeCard).join("");
-  document.getElementById("riskCreatives").innerHTML = risk.map(creativeCard).join("") || `<p class="empty">当前筛选下没有明显风险素材。</p>`;
-}
-
-function renderOperatorAlerts(rows) {
-  const combos = aggregate(rows, ["operator", "product_name", "country"]).filter((row) => row.spend > 200);
-  const risks = combos.filter((row) => row.roas < 1.4).sort((a, b) => b.spend - a.spend).slice(0, 5);
-  const wins = combos.filter((row) => row.roas >= 2 && row.purchase_times >= 5).sort((a, b) => b.purchase_value - a.purchase_value).slice(0, 3);
-  document.getElementById("operatorAlerts").innerHTML = [
-    ...wins.map((row) => `<article class="alert-item good-alert"><strong>可放量组合</strong><span>${escapeHtml(row.operator)} / ${escapeHtml(row.product_name)} / ${escapeHtml(row.country)}，ROAS ${ratio(row.roas)}</span></article>`),
-    ...risks.map((row) => `<article class="alert-item"><strong>需复盘组合</strong><span>${escapeHtml(row.operator)} / ${escapeHtml(row.product_name)} / ${escapeHtml(row.country)}，花费 ${money(row.spend)}，ROAS ${ratio(row.roas)}</span></article>`),
-  ].join("") || `<p class="empty">当前筛选下没有明显组合提醒。</p>`;
-}
-
 function renderLandingInsights(rows) {
   const landingRows = aggregate(rows, ["landing_type"]).filter((row) => row.spend > 100).sort((a, b) => b.spend - a.spend);
   const best = [...landingRows].filter((row) => row.purchase_times > 0).sort((a, b) => b.roas - a.roas)[0];
@@ -2609,36 +2456,6 @@ function onsiteStatus(row) {
   return "观察";
 }
 
-function statusTag(value) {
-  const cls = {
-    "高效可加": "status-good",
-    "投放偏重": "status-bad",
-    "可加码": "status-good",
-    "承接弱": "status-bad",
-    "站内强广告弱": "status-blue",
-    "Meta高于站内": "status-warn",
-  }[value] || "status-neutral";
-  return `<span class="status-tag ${cls}">${escapeHtml(value)}</span>`;
-}
-
-function salesGapBadge(value) {
-  const cls = value >= 0 ? "up" : "down";
-  const sign = value >= 0 ? "+" : "";
-  return `<span class="${cls}">${sign}${money(value)}</span>`;
-}
-
-function shareGapBadge(value) {
-  const cls = Math.abs(value) < 0.005 ? "flat" : (value > 0 ? "up" : "down");
-  const sign = value > 0 ? "+" : "";
-  return `<span class="${cls}">${sign}${pct(value)}</span>`;
-}
-
-function efficiencyBadge(value) {
-  const cls = value >= 1.2 ? "up" : (value && value < 0.8 ? "down" : "flat");
-  const text = value >= 99 ? "仅站内" : ratio(value);
-  return `<span class="${cls}">${text}</span>`;
-}
-
 function unmatchedShopifyProducts(shopifyRows) {
   const map = new Map();
   for (const row of shopifyRows) {
@@ -2715,79 +2532,64 @@ function productAnalysisRows(currentRows, previousRows, dims, sortKey = "purchas
     .sort((a, b) => getMetric(b, sortKey) - getMetric(a, sortKey));
 }
 
-function renderProductPage(factRows, previousFactRows, adRows, previousAdRows) {
-  const productDaily = aggregate(factRows, ["date_start"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start)));
-  renderLineChart("productTrend", productDaily, "purchase_value");
-  renderTrendConclusion("productTrendConclusion", productDaily, "purchase_value");
+function renderProductPage(productModel) {
+  const segmentMeta = {
+    overall: { label: "整体表现", dimensionLabel: "产品名称" },
+    form: { label: "单品套组", dimensionLabel: "单品/套组" },
+    material: { label: "素材组合", dimensionLabel: "素材类型" },
+  }[productModel.segment];
+  DashboardSegments.render(
+    document.getElementById("productSegmentControl"),
+    [
+      { value: "overall", label: "整体表现" },
+      { value: "form", label: "单品套组" },
+      { value: "material", label: "素材组合" },
+    ],
+    state.productSegment,
+    (segment) => {
+      if (segment === state.productSegment) return;
+      state.productSegment = segment;
+      preserveScroll(render);
+    },
+  );
 
-  const formRows = productAnalysisRows(factRows, previousFactRows, ["product_form"]);
-  const productRows = productAnalysisRows(factRows, previousFactRows, ["standard_product_name"]);
-  renderDonutChart("productFormDonut", formRows, "purchase_value", "单品/套组 GMV 结构", { labelKey: "product_form", limit: 5 });
-  renderShareCompareBars("productNameShareBars", productRows, "standard_product_name", { limit: 6 });
+  document.getElementById("productTrendTitle").textContent = `${segmentMeta.label}趋势`;
+  document.getElementById("productStructureTitle").textContent = `${segmentMeta.label}结构`;
+  document.getElementById("productDetailTitle").textContent = `${segmentMeta.label}明细`;
+  renderLineChart("productTrend", productModel.trend, "purchase_value");
+  renderTrendConclusion("productTrendConclusion", productModel.trend, "purchase_value");
+  renderShareCompareBars("productSegmentStructure", productModel.structure, productModel.dimension, { limit: 8 });
+  renderHeatmap("productCountryHeatmap", productModel.country, "standard_product_name", "country", { xLimit: 5, yLimit: 6 });
 
-  renderTable("productNameTable", productRows, [
-    { key: "standard_product_name", label: "产品名称", sticky: true, filterKey: "standard_product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+  const leadingColumns = [
+    { key: "standard_product_name", label: "产品名称", sticky: true, filterKey: "standard_product_name", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
+  ];
+  if (productModel.segment !== "overall") {
+    leadingColumns.push({
+      key: productModel.dimension,
+      label: segmentMeta.dimensionLabel,
+      filterKey: productModel.dimension,
+      format: (value) => `<span class="tag ${productModel.segment === "material" ? "material-tag" : ""}">${escapeHtml(value || "未分类")}</span>`,
+    });
+  }
+  const metricColumns = [
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-  ], 10, { previousSummaryRows: aggregate(previousFactRows, ["standard_product_name"]) });
-
-  renderTable("productFormTable", formRows, [
-    { key: "product_form", label: "类型", sticky: true, filterKey: "product_form", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
+    { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
     metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-  ], 10, { previousSummaryRows: aggregate(previousFactRows, ["product_form"]) });
-
-  const productCountryRows = productAnalysisRows(factRows, previousFactRows, ["standard_product_name", "country"]);
-  renderHeatmap("productCountryHeatmap", productCountryRows, "standard_product_name", "country", { xLimit: 5, yLimit: 6 });
-  renderTable("productCountryTable", productCountryRows, [
-    { key: "standard_product_name", label: "产品名称", sticky: true, filterKey: "standard_product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "country", label: "国家", filterKey: "country" },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 10, { previousSummaryRows: aggregate(previousFactRows, ["standard_product_name", "country"]) });
-
-  const productMaterialRows = productAnalysisRows(adRows, previousAdRows, ["standard_product_name", "material_type"], "spend");
-  renderTable("productMaterialTypeTable", productMaterialRows, [
-    { key: "standard_product_name", label: "产品名称", sticky: true, filterKey: "standard_product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "material_type", label: "素材类型", filterKey: "material_type", format: (v) => `<span class="tag material-tag">${escapeHtml(v || "未分类")}</span>` },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-  ], 10, { previousSummaryRows: aggregate(previousAdRows, ["standard_product_name", "material_type"]) });
-
-  const standardRows = productAnalysisRows(factRows, previousFactRows, ["standard_product_name", "product_form"]);
-  renderTable("standardProductTable", standardRows, [
-    { key: "standard_product_name", label: "标准产品", sticky: true, filterKey: "standard_product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "product_form", label: "单品/套组", filterKey: "product_form", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "sales_share", label: "GMV占比", format: pct, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
     { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-  ], 10, { previousSummaryRows: aggregate(previousFactRows, ["standard_product_name", "product_form"]) });
+  ];
+  const best = productModel.detail[0];
+  document.getElementById("productTableConclusion").textContent = best
+    ? `${best.standard_product_name} 当前归因收入最高，为 ${money(best.purchase_value)}，ROAS ${ratio(best.roas)}。`
+    : "当前筛选下暂无产品数据。";
+  renderTable("productSegmentTable", productModel.detail, [...leadingColumns, ...metricColumns], Number.POSITIVE_INFINITY, {
+    previousSummaryRows: productModel.previousDetail,
+  });
 }
 
 function addChannelComparison(rows, previousRows) {
@@ -2805,13 +2607,53 @@ function addChannelComparison(rows, previousRows) {
   });
 }
 
+function renderChannelScopeControls() {
+  const marketControl = document.getElementById("channelMarketControl");
+  const countryFilters = document.getElementById("channelCountryFilters");
+  if (!marketControl || !countryFilters) return;
+
+  DashboardSegments.render(marketControl, [
+    { value: "US", label: "美国" },
+    { value: "NON_US", label: "非美国" },
+  ], state.channelMarket, (value) => {
+    if (value === state.channelMarket) return;
+    state.channelMarket = value;
+    preserveScroll(render);
+  });
+  countryFilters.hidden = state.channelMarket !== "NON_US";
+  if (countryFilters.hidden) {
+    countryFilters.innerHTML = "";
+    return;
+  }
+
+  countryFilters.innerHTML = `
+    <div class="multi-select" data-filter="channelCountries">
+      <span class="filter-label">国家</span>
+      <button type="button" class="multi-trigger" id="channelCountriesFilterButton" aria-expanded="false">全部</button>
+      <div class="multi-panel" id="channelCountriesFilterPanel"></div>
+    </div>
+  `;
+  setMultiOptions(
+    "channelCountries",
+    NON_US_COMPARABLE_COUNTRIES,
+    state.channelCountries.length ? state.channelCountries : NON_US_COMPARABLE_COUNTRIES
+  );
+}
+
+function resetChannelCountryFilters() {
+  state.channelCountries = [];
+  renderChannelScopeControls();
+}
+
 function renderChannels() {
-  const currentRows = filteredChannelRows(data.us_channel_product_daily);
-  const previousRows = comparisonChannelRows(data.us_channel_product_daily);
+  renderChannelScopeControls();
+  document.getElementById("channelTrendTitle").textContent = channelTrendTitle();
+  const currentRows = filteredChannelRows();
+  const previousRows = comparisonChannelRows();
   const channelDailyRows = channelAggregate(currentRows, ["date_start", "channel"])
     .sort((a, b) => String(a.date_start).localeCompare(String(b.date_start)) || String(a.channel).localeCompare(String(b.channel)));
   renderChannelLineChart("usChannelTrend", channelDailyRows);
-  renderUsChannelConclusion(channelDailyRows);
+  renderChannelConclusion(channelDailyRows);
 
   const previousSummaryRows = channelAggregate(previousRows, ["channel"]);
   const channelSummaryRows = addChannelComparison(
@@ -2825,17 +2667,19 @@ function renderChannels() {
     { key: "unit_value", label: "件单价(原始)", value: (row) => row, format: (row) => metricWithDelta(row, "unit_value", (value) => channelMoney(value, row), "unit_value_delta"), summary: false, num: true },
   ], 20, { previousSummaryRows });
 
-  const previousProductRows = channelAggregate(previousRows, ["channel", "product_name"]);
+  const previousProductRows = channelAggregate(previousRows, ["channel", "sku_code", "product_name"]);
   const channelProductRows = addChannelComparison(
-    channelAggregate(currentRows, ["channel", "product_name"]),
+    channelAggregate(currentRows, ["channel", "sku_code", "product_name"]),
     previousProductRows
   ).sort((a, b) => b.channel_units - a.channel_units || b.channel_sales - a.channel_sales);
   renderChannelProductMix("usChannelProductMix", channelProductRows);
-  renderBars("usChannelProductBars", channelAggregate(currentRows, ["product_name"]).sort((a, b) => b.channel_units - a.channel_units), "product_name", "channel_units", 10, {
+  renderBars("usChannelProductBars", channelAggregate(currentRows, ["sku_code", "product_name"]).sort((a, b) => b.channel_units - a.channel_units), "product_name", "channel_units", 10, {
     subText: (row) => `销售额 ${channelMoney(row.channel_sales, row)} / 件单价 ${channelMoney(row.unit_value, row)}`,
   });
+  document.getElementById("usChannelProductTable")?.closest(".table-wrap")?.classList.add("channel-detail-scroll");
   renderTable("usChannelProductTable", channelProductRows, [
     { key: "channel", label: "渠道", sticky: true, filterKey: "channel" },
+    { key: "sku_code", label: "SKU", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "channel_units", label: "销量", value: (row) => row, format: (row) => metricWithDelta(row, "channel_units", number, "units_delta"), summaryValue: (row) => row.channel_units, summaryFormat: number, num: true },
     { key: "channel_sales", label: "销售额(原始)", value: (row) => row, format: (row) => metricWithDelta(row, "channel_sales", (value) => channelMoney(value, row), "sales_delta"), summary: false, num: true },
@@ -2879,7 +2723,7 @@ function attributionChannelOptions() {
 
 function channelOptionsForView() {
   if (state.view === "attribution") return attributionChannelOptions();
-  return [...new Set((data.us_channel_product_daily || []).map((row) => row.channel || "Unknown"))].sort();
+  return [...new Set((data.channel_market_product_daily || []).map((row) => row.channel || "Unknown"))].sort();
 }
 
 function evidenceBadge(value) {
@@ -3374,209 +3218,177 @@ function renderAttribution() {
   renderAttributionIssues();
 }
 
-function renderOnsiteSummary(factRows, shopifyRows, previousFact, previousShopify) {
-  const meta = summaryOf(factRows);
-  const period = comparisonWindow();
-  const exactDaily = !state.product.length
-    ? filteredShopifyDailyRows(state.country.length ? data.shopify_country_daily : data.shopify_daily)
-    : shopifyRows;
-  const exactPreviousDaily = !state.product.length
-    ? filteredShopifyDailyRows(state.country.length ? data.shopify_country_daily : data.shopify_daily, period.start, period.end)
-    : previousShopify;
-  const shopify = shopifyAggregate(exactDaily)[0] || {};
-  const prevShopify = shopifyAggregate(exactPreviousDaily)[0] || {};
-  const onsiteRoas = meta.spend ? getMetric(shopify, "net_sales") / meta.spend : 0;
-  const previousOnsiteRoas = summaryOf(previousFact).spend ? getMetric(prevShopify, "net_sales") / summaryOf(previousFact).spend : 0;
-  const allShopifyRows = shopifyRowsForWindow(data.shopify_fact, state.startDate, state.endDate);
-  const unmatchedSales = allShopifyRows.filter((row) => row.product_name === "未匹配").reduce((sum, row) => sum + getMetric(row, "net_sales"), 0);
-  const totalShopifySales = allShopifyRows.reduce((sum, row) => sum + getMetric(row, "net_sales"), 0);
-  const matchedRate = totalShopifySales ? 1 - (unmatchedSales / totalShopifySales) : 1;
-  const ignoredFilters = [state.account.length && "账户", state.operator.length && "投手", state.materialType.length && "素材类型", state.videoSource.length && "视频来源"].filter(Boolean);
-  document.getElementById("onsiteSummary").innerHTML = `
-    <article>
-      <span>Shopify 净销售额</span>
-      <strong>${money(shopify.net_sales)}</strong>
-      <small class="${deltaText(shopify.net_sales, prevShopify.net_sales).cls}">${deltaText(shopify.net_sales, prevShopify.net_sales).text}</small>
-    </article>
-    <article>
-      <span>站内 ROAS</span>
-      <strong>${ratio(onsiteRoas)}</strong>
-      <small class="${deltaText(onsiteRoas, previousOnsiteRoas).cls}">${deltaText(onsiteRoas, previousOnsiteRoas).text}</small>
-    </article>
-    <article>
-      <span>订单 / 净销量</span>
-      <strong>${number(shopify.orders)} / ${number(shopify.net_items_sold)}</strong>
-      <small>AOV ${money(shopify.aov)}</small>
-    </article>
-    <article>
-      <span>归因与站内差额</span>
-      <strong>${money(getMetric(shopify, "net_sales") - meta.purchase_value)}</strong>
-      <small>归因收入 ${money(meta.purchase_value)} / Shopify净销售 ${money(shopify.net_sales)}</small>
-    </article>
-    <article>
-      <span>产品匹配覆盖</span>
-      <strong>${pct(matchedRate)}</strong>
-      <small>未匹配销售 ${money(unmatchedSales)}</small>
-    </article>
-    ${ignoredFilters.length ? `<p class="onsite-note">提示：Shopify 只能响应日期、国家、产品筛选；当前站内数据未应用 ${ignoredFilters.join("、")} 筛选。</p>` : ""}
-  `;
+function renderCountryPage(countryModel) {
+  const scope = state.countryRegion === "ALL"
+    ? (state.country.length ? `已选 ${state.country.length} 个国家` : "全部地区")
+    : state.countryRegion;
+  document.getElementById("countryTrendScope").textContent = scope;
+  document.getElementById("countryRegionScope").textContent = state.countryRegion === "ALL" ? "全部地区" : `当前：${state.countryRegion}`;
+
+  renderLineChart("countryTrend", countryModel.trend, "purchase_value");
+  renderCountryTrendConclusion(countryModel.countries);
+
+  const regionRows = countryModel.regions.map((row) => ({
+    ...row,
+    _rowClass: row.region === state.countryRegion ? "is-active-drilldown" : "",
+  }));
+  renderShareCompareBars("regionShareBars", regionRows, "region", { limit: 4 });
+  renderTable("regionTable", regionRows, [
+    { key: "region", label: "地区", sticky: true, filterKey: "region", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+    { key: "country_count", label: "国家数", value: (row) => row, format: (row) => metricWithDelta(row, "country_count", number, "country_count_delta"), summaryValue: (row) => row.country_count, summaryFormat: number, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share, summaryFormat: pct, num: true },
+    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
+    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
+    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
+  ], 10, { previousSummaryRows: countryModel.previousRegions });
+
+  renderTable("countryDetailTable", countryModel.countries, [
+    { key: "country", label: "国家", sticky: true, filterKey: "country" },
+    { key: "standard_product_name", label: "标准产品", filterKey: "standard_product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
+    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
+    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
+    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
+    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
+    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
+  ], 100, { previousSummaryRows: countryModel.previousCountries });
 }
 
-function renderOnsite(factRows, previousFact) {
-  const shopifyRows = filteredShopifyRows();
-  const previousShopify = comparisonShopifyRows();
-  renderOnsiteSummary(factRows, shopifyRows, previousFact, previousShopify);
+function creativeSegmentMeta(model) {
+  return {
+    type: { label: "素材类型", dimension: "material_type" },
+    source: { label: "视频来源", dimension: "video_source" },
+    subtype: { label: "视频细分", dimension: "video_subtype" },
+  }[model.segment];
+}
 
-  const metaDaily = aggregate(factRows, ["date_start"]);
-  const shopDaily = (!state.country.length && !state.product.length)
-    ? shopifyAggregate(filteredShopifyDailyRows(data.shopify_daily), ["date_start"])
-    : shopifyAggregate(shopifyRows, ["date_start"]);
-  const dates = [...new Set([...metaDaily.map((row) => row.date_start), ...shopDaily.map((row) => row.date_start)])].sort();
-  const metaByDate = new Map(metaDaily.map((row) => [row.date_start, row]));
-  const shopByDate = new Map(shopDaily.map((row) => [row.date_start, row]));
-  const onsiteTrendRows = dates.map((date) => ({
-    date_start: date,
-    meta_sales: getMetric(metaByDate.get(date), "purchase_value"),
-    shopify_sales: getMetric(shopByDate.get(date), "net_sales"),
-  }));
-  renderDualLineChart("onsiteTrend", onsiteTrendRows, "meta_sales", "shopify_sales");
-  renderOnsiteTrendConclusion(onsiteTrendRows);
+function renderCreativePage(creativeModel) {
+  const segmentOptions = [
+    { value: "type", label: "素材类型" },
+    { value: "source", label: "视频来源" },
+    { value: "subtype", label: "视频细分" },
+  ];
+  DashboardSegments.render(
+    document.getElementById("creativeSegmentControl"),
+    segmentOptions,
+    state.creativeSegment,
+    (segment) => {
+      if (segment === state.creativeSegment) return;
+      state.creativeSegment = segment;
+      preserveScroll(render);
+    },
+  );
 
-  const countryShopifyRows = !state.product.length
-    ? filteredShopifyDailyRows(data.shopify_country_daily)
-    : shopifyRows;
-  const countryRows = addOnsiteShareMetrics(joinedOnsiteRows(factRows, countryShopifyRows, ["country"]))
-    .sort((a, b) => b.shopify_sales - a.shopify_sales);
-  renderShareCompareBars("onsiteCountryShareBars", countryRows, "country", {
-    valueKey: "shopify_sales",
-    spendShareKey: "meta_spend_share",
-    salesShareKey: "shopify_sales_share",
-    spendLabel: "广告花费",
-    salesLabel: "净销售",
-    valueFormat: money,
-    limit: 6,
+  const meta = creativeSegmentMeta(creativeModel);
+  document.getElementById("creativeTrendTitle").textContent = `${meta.label}趋势`;
+  document.getElementById("creativeStructureTitle").textContent = `${meta.label}结构`;
+  document.getElementById("creativeProductMaterialTitle").textContent = `产品 x ${meta.label}`;
+  renderLineChart("creativeTrend", creativeModel.trend, "purchase_value");
+  renderTrendConclusion("creativeTrendConclusion", creativeModel.trend, "purchase_value");
+  renderDonutChart("creativeStructureDonut", creativeModel.structure, "spend", `${meta.label}花费结构`, {
+    labelKey: creativeModel.dimension,
+    limit: 8,
   });
-  renderTable("onsiteCountryTable", countryRows, [
-    { key: "country", label: "国家", sticky: true, filterKey: "country" },
-    { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
-    { key: "shopify_sales", label: "Shopify净销售", format: money, num: true },
-    { key: "shopify_sales_share", label: "净销售占比", format: pct, num: true },
-    { key: "meta_spend_share", label: "广告花费占比", format: pct, num: true },
-    { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
-    { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
-    { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
-    metaAovColumn({ key: "meta_aov", label: "Meta AOV", showDelta: false }),
-    { key: "sales_gap", label: "销售差额", format: salesGapBadge, num: true },
-    { key: "spend", label: "广告花费", format: money, num: true },
-    { key: "onsite_roas", label: "站内ROAS", format: ratio, num: true },
-    { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
-    { key: "shopify_orders", label: "订单", format: number, num: true },
-    { key: "shopify_net_items_sold", label: "净销量", format: number, num: true },
-    { key: "shopify_aov", label: "Shopify AOV", format: money, num: true },
-  ], 60, {
-    previousSummaryRows: addOnsiteShareMetrics(joinedOnsiteRows(previousFact, !state.product.length
-      ? filteredShopifyDailyRows(data.shopify_country_daily, comparisonWindow().start, comparisonWindow().end)
-      : previousShopify, ["country"])),
-  });
+  renderShareCompareBars("creativeStructureShares", creativeModel.structure, creativeModel.dimension, { limit: 8 });
 
-  const productComparisonRows = productOverviewRows(factRows, previousFact, shopifyRows, previousShopify);
-  const previousProductComparisonRows = addOnsiteShareMetrics(joinedOnsiteRows(previousFact, previousShopify, ["product_name"]));
-  renderShareCompareBars("onsiteProductShareBars", productComparisonRows, "product_name", {
-    valueKey: "shopify_sales",
-    spendShareKey: "meta_spend_share",
-    salesShareKey: "shopify_sales_share",
-    spendLabel: "广告花费",
-    salesLabel: "净销售",
-    valueFormat: money,
-    limit: 6,
-  });
-  renderTable("onsiteProductComparisonTable", productComparisonRows, [
-    { key: "product_name", label: "产品", sticky: true, filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
-    { key: "shopify_sales", label: "Shopify净销售", value: (row) => row, format: (row) => metricWithDelta(row, "shopify_sales", money, "shopify_sales_delta"), summaryValue: (row) => row.shopify_sales, summaryFormat: money, num: true },
-    { key: "shopify_sales_share", label: "净销售占比", format: pct, num: true },
+  const segmentColumn = {
+    key: creativeModel.dimension,
+    label: meta.label,
+    sticky: true,
+    filterKey: creativeModel.dimension,
+    format: (value) => `<span class="tag material-tag">${escapeHtml(value || "未分类")}</span>`,
+  };
+  const performanceColumns = [
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "meta_spend_share", label: "花费占比", format: pct, num: true },
-    { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
-    { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
-    { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
-    metaAovColumn({ key: "meta_aov", label: "Meta AOV", deltaKey: "meta_aov_delta" }),
-    { key: "onsite_roas", label: "站内ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "onsite_roas", ratio, "onsite_roas_delta"), summaryValue: (row) => row.onsite_roas, summaryFormat: ratio, num: true },
-    { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
-    { key: "shopify_orders", label: "订单", format: number, num: true },
-    { key: "shopify_net_items_sold", label: "净销量", format: number, num: true },
-  ], 80, { previousSummaryRows: previousProductComparisonRows });
-
-  const productRows = addOnsiteShareMetrics(joinedOnsiteRows(factRows, shopifyRows, ["country", "product_name"]))
-    .filter((row) => row.spend > 0 || row.shopify_sales > 0)
-    .sort((a, b) => (b.shopify_sales + b.meta_purchase_value) - (a.shopify_sales + a.meta_purchase_value));
-  renderTable("onsiteProductTable", productRows, [
-    { key: "country", label: "国家", sticky: true, filterKey: "country" },
-    { key: "product_name", label: "产品归类", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "status", label: "判断", value: onsiteStatus, format: statusTag },
-    { key: "shopify_sales", label: "Shopify净销售", format: money, num: true },
-    { key: "shopify_sales_share", label: "净销售占比", format: pct, num: true },
-    { key: "meta_spend_share", label: "广告花费占比", format: pct, num: true },
-    { key: "share_gap", label: "占比差", format: shareGapBadge, num: true },
-    { key: "efficiency_index", label: "效率指数", format: efficiencyBadge, num: true },
-    { key: "meta_purchase_value", label: "归因收入", format: money, num: true },
-    metaAovColumn({ key: "meta_aov", label: "Meta AOV", showDelta: false }),
-    { key: "sales_gap", label: "销售差额", format: salesGapBadge, num: true },
-    { key: "spend", label: "广告花费", format: money, num: true },
-    { key: "onsite_roas", label: "站内ROAS", format: ratio, num: true },
-    { key: "meta_roas", label: "平台ROAS", format: ratio, num: true },
-    { key: "shopify_orders", label: "订单", format: number, num: true },
-    { key: "shopify_net_items_sold", label: "净销量", format: number, num: true },
-  ], 160, {
-    previousSummaryRows: addOnsiteShareMetrics(joinedOnsiteRows(previousFact, previousShopify, ["country", "product_name"])),
+    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share, summaryFormat: pct, summaryDelta: false, num: true },
+    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
+    { key: "sales_share", label: "销售占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, summaryDelta: false, num: true },
+    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
+    metaAovColumn(),
+    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
+    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
+    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
+    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
+  ];
+  renderTable("creativeStructureTable", creativeModel.structure, [segmentColumn, ...performanceColumns], 10, {
+    previousSummaryRows: creativeModel.previousStructure,
   });
 
-  renderTable("onsiteRawProductTable", rawShopifyProductRows(shopifyRows), [
-    { key: "country", label: "国家", sticky: true, filterKey: "country" },
-    { key: "product_title", label: "Shopify商品名", name: true, format: escapeHtml },
-    { key: "product_name", label: "归类产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "net_sales", label: "净销售额", format: money, num: true },
-    { key: "sales_share", label: "净销售占比", format: pct, num: true },
-    { key: "orders", label: "订单", format: number, num: true },
-    { key: "net_items_sold", label: "净销量", format: number, num: true },
-    { key: "aov", label: "AOV", format: money, num: true },
-  ], 200, { previousSummaryRows: rawShopifyProductRows(previousShopify) });
+  renderTable("creativeProductMaterialTable", creativeModel.productMaterial, [
+    { key: "standard_product_name", label: "标准产品", sticky: true, filterKey: "standard_product_name", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
+    { ...segmentColumn, sticky: false },
+    ...performanceColumns,
+  ], Number.POSITIVE_INFINITY, { previousSummaryRows: creativeModel.previousProductMaterial });
 
-  renderTable("onsiteUnmatchedTable", unmatchedShopifyProducts(shopifyRows), [
-    { key: "product_title", label: "Shopify商品名", sticky: true, name: true, format: escapeHtml },
-    { key: "net_sales", label: "净销售额", format: money, num: true },
-    { key: "orders", label: "订单", format: number, num: true },
-    { key: "net_items_sold", label: "净销量", format: number, num: true },
-    { key: "country_count", label: "国家数", format: number, num: true },
-  ], 80, { previousSummaryRows: unmatchedShopifyProducts(previousShopify) });
+  const detailDimensions = [
+    "ad_name",
+    "material_name",
+    "standard_product_name",
+    "material_type",
+    "video_source",
+    "video_subtype",
+    "operator",
+    "country",
+  ];
+  const detailRows = aggregate(creativeModel.detail, detailDimensions).sort((left, right) => right.spend - left.spend);
+  const previousDetailRows = aggregate(creativeModel.previousDetail, detailDimensions);
+  renderTable("creativeDetailTable", detailRows, [
+    { key: "ad_name", label: "Ad name", name: true, sticky: true, format: escapeHtml },
+    { key: "material_name", label: "素材", name: true, filterKey: "material_name", format: (value) => `<span class="tag material-tag">${escapeHtml(value)}</span>` },
+    { key: "standard_product_name", label: "标准产品", filterKey: "standard_product_name", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
+    { key: "material_type", label: "素材类型", filterKey: "material_type", format: (value) => `<span class="tag material-tag">${escapeHtml(value || "未分类")}</span>` },
+    { key: "video_source", label: "视频来源", filterKey: "video_source", format: (value) => value ? `<span class="tag">${escapeHtml(value)}</span>` : "-" },
+    { key: "video_subtype", label: "视频细分", filterKey: "video_subtype", format: (value) => value ? `<span class="tag">${escapeHtml(value)}</span>` : "-" },
+    { key: "operator", label: "投手", filterKey: "operator" },
+    { key: "country", label: "国家", filterKey: "country" },
+    { key: "spend", label: "广告花费", format: money, num: true },
+    { key: "purchase_value", label: "归因收入", format: money, num: true },
+    { key: "purchase_times", label: "转化", format: number, num: true },
+    metaAovColumn({ showDelta: false }),
+    { key: "roas", label: "ROAS", format: ratio, num: true },
+    { key: "cpa", label: "CPA", format: money, num: true },
+    { key: "ctr", label: "CTR", format: pct, num: true },
+    { key: "cvr", label: "CVR", format: pct, num: true },
+  ], Number.POSITIVE_INFINITY, { previousSummaryRows: previousDetailRows });
 }
 
 function render() {
   updateStickyOffsets();
-  const [title, subtitle] = titles[state.view];
-  document.getElementById("viewTitle").textContent = title;
-  document.getElementById("viewSubtitle").textContent = subtitle;
+  const page = DashboardPages.get(state.view) || DashboardPages.get("overview");
+  document.getElementById("viewTitle").textContent = page.title;
+  document.getElementById("viewSubtitle").textContent = page.subtitle;
   document.getElementById("periodBadge").textContent = `${daysBetween(state.startDate, state.endDate)} 天`;
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === state.view));
   document.querySelectorAll("[id$='View']").forEach((section) => section.classList.add("hidden"));
   document.getElementById(`${state.view}View`).classList.remove("hidden");
+  DashboardPageShell.apply(document.getElementById(`${state.view}View`), page.modules);
   renderContextFilters();
   renderPeriodHint();
   const attributionOnly = state.view === "attribution";
   ["insightSummary", "kpis", "comparison", "actionInsights"].forEach((id) => {
-    document.getElementById(id).classList.toggle("hidden", attributionOnly);
+    const compactPage = ["country", "creative"].includes(state.view) && (id === "comparison" || id === "actionInsights");
+    document.getElementById(id).classList.toggle("hidden", attributionOnly || compactPage);
   });
 
   const fact = pageFactRows(data.fact);
   const previousFact = pageComparisonRows(data.fact);
-  const adRows = filteredRows(data.ads || []).map((row) => ({ ...row, video_source: row.video_source || "", material_name: materialName(row) }));
-  const previousAdRows = comparisonRows(data.ads || []).map((row) => ({ ...row, video_source: row.video_source || "", material_name: materialName(row) }));
+  const countryModel = countryPageModel();
+  const adRows = filteredRows(data.ads || []).map((row) => ({ ...row, video_source: row.video_source || "", video_subtype: row.video_subtype || "", material_name: materialName(row) }));
+  const previousAdRows = comparisonRows(data.ads || []).map((row) => ({ ...row, video_source: row.video_source || "", video_subtype: row.video_subtype || "", material_name: materialName(row) }));
+  const creativeModel = creativePageModel(adRows, previousAdRows);
+  const productModel = productPageModel(fact, previousFact, adRows, previousAdRows);
   const materialInventoryRows = filteredMaterialInventoryRows();
   const previousMaterialInventoryRows = comparisonMaterialInventoryRows();
   const landingRows = adRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
   const previousLandingRows = previousAdRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
-  renderInsightSummary(fact, previousFact);
-  renderKpis(fact, previousFact, { landingRows, previousLandingRows });
+  renderInsightSummary(fact, previousFact, { creativeModel });
+  renderKpis(fact, previousFact, { landingRows, previousLandingRows, creativeModel, productModel });
   renderComparison(fact, previousFact);
   renderActionInsights(fact, previousFact, { landingRows, previousLandingRows });
 
@@ -3589,163 +3401,10 @@ function render() {
   renderBars("overviewOperatorBars", aggregate(fact, ["operator"]), "operator", "spend", 8);
   renderAlerts(fact);
 
-  renderProductPage(fact, previousFact, adRows, previousAdRows);
+  renderProductPage(productModel);
 
-  const regions = regionPerformanceRows(fact, previousFact);
-  renderShareCompareBars("regionShareBars", regions, "region", { limit: 4 });
-  renderTable("regionTable", regions, [
-    { key: "region", label: "地区", sticky: true, filterKey: "region", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "country_count", label: "国家数", value: (row) => row, format: (row) => metricWithDelta(row, "country_count", number, "country_count_delta"), summaryValue: (row) => row.country_count, summaryFormat: number, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share, summaryFormat: pct, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
-    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-  ], 10, { previousSummaryRows: aggregateRegions(previousFact) });
-
-  const countries = addComparison(aggregate(fact, ["country"]), previousFact, ["country"]).sort((a, b) => b.purchase_value - a.purchase_value);
-  renderTable("countryTable", countries, [
-    { key: "country", label: "国家", sticky: true, filterKey: "country" },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", format: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "ctr", label: "CTR", format: pct, num: true },
-  ], 40, { previousSummaryRows: aggregate(previousFact, ["country"]) });
-
-  const countryTrendRows = aggregate(fact, ["date_start"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start)));
-  renderLineChart("countryTrend", countryTrendRows, "purchase_value");
-  renderCountryQuickFilters(fact);
-  renderCountryTrendConclusion(fact);
-  const countryProductRows = addComparison(aggregate(fact, ["country", "product_name"]), previousFact, ["country", "product_name"]).sort((a, b) => b.purchase_value - a.purchase_value);
-  renderHeatmap("countryProductHeatmap", countryProductRows, "product_name", "country", { xLimit: 5, yLimit: 6 });
-  renderTable("countryProductTable", countryProductRows, [
-    { key: "country", label: "国家", sticky: true, filterKey: "country" },
-    { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "ctr", label: "CTR", format: pct, num: true },
-    { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 100, { previousSummaryRows: aggregate(previousFact, ["country", "product_name"]) });
-  const creativeSource = adRows;
-  const creativeRows = aggregate(creativeSource, ["product_name", "material_name", "material_code", "material_type", "video_source", "ad_id", "ad_name", "campaign_name", "operator", "country"]).sort((a, b) => b.spend - a.spend);
-  const materialRows = materialComparisonRows(fact, previousFact, materialInventoryRows, previousMaterialInventoryRows);
-  renderDonutChart("materialSpendDonut", materialRows, "spend", "素材花费结构");
-  renderDonutChart("materialSalesDonut", materialRows, "purchase_value", "素材销售结构");
-  renderShareCompareBars("materialShareBars", materialRows.filter((row) => !row.is_child), "material_label", { limit: 5 });
-  renderTable("materialComparisonTable", materialRows, [
-    { key: "material_label", label: "素材类型", sticky: true, format: (v, row) => `<span class="material-label ${row.is_child ? "child-material-label" : ""}"><span class="tag material-tag">${escapeHtml(v)}</span></span>` },
-    { key: "material_type", label: "归类", filterKey: "material_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "video_source", label: "视频来源", filterKey: "video_source", format: (v) => v ? `<span class="tag">${escapeHtml(v)}</span>` : "-" },
-    { key: "material_count", label: "素材数", value: (row) => row, format: (row) => metricWithDelta(row, "material_count", number, "material_count_delta"), summaryValue: (row) => row.material_count, summaryFormat: number, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "spend_share", label: "花费占比", format: pct, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "sales_share", label: "销售占比", format: pct, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
-    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-  ], 10, {
-    summaryRows: materialRows.filter((row) => !row.is_child),
-    previousSummaryRows: materialComparisonRows(previousFact, [], previousMaterialInventoryRows, []).filter((row) => !row.is_child),
-  });
-  renderCreativeGroups(creativeRows);
-
-  const creativeProductDims = ["product_name", "material_name", "material_type", "video_source"];
-  const currentMaterialCountMap = new Map(materialCountBy(materialInventoryRows, creativeProductDims).map((row) => [compareKey(row, creativeProductDims), row.material_count]));
-  const previousMaterialCountMap = new Map(materialCountBy(previousMaterialInventoryRows, creativeProductDims).map((row) => [compareKey(row, creativeProductDims), row.material_count]));
-  const creativeProductRows = addComparison(
-    aggregate(adRows, creativeProductDims),
-    previousAdRows,
-    creativeProductDims
-  ).map((row) => {
-    const key = compareKey(row, creativeProductDims);
-    const materialCount = currentMaterialCountMap.get(key) || 0;
-    const previousMaterialCount = previousMaterialCountMap.get(key) || 0;
-    return { ...row, material_count: materialCount, material_count_delta: deltaText(materialCount, previousMaterialCount) };
-  }).sort((a, b) => b.purchase_value - a.purchase_value);
-  renderHeatmap("creativeProductHeatmap", aggregate(adRows, ["product_name", "material_type"]), "material_type", "product_name", { xLimit: 4, yLimit: 6 });
-  renderTable("creativeProductTable", creativeProductRows, [
-    { key: "product_name", label: "产品", sticky: true, filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "material_name", label: "素材", name: true, format: (v) => `<span class="tag material-tag">${escapeHtml(v)}</span>` },
-    { key: "material_type", label: "类型", filterKey: "material_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "video_source", label: "视频来源", filterKey: "video_source", format: (v) => v ? `<span class="tag">${escapeHtml(v)}</span>` : "-" },
-    { key: "material_count", label: "素材数", value: (row) => row, format: (row) => metricWithDelta(row, "material_count", number, "material_count_delta"), summaryValue: (row) => row.material_count, summaryFormat: number, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "roas", label: "ROI", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "purchase_times", label: "转化数", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-  ], 120, { previousSummaryRows: aggregate(previousAdRows, creativeProductDims).map((row) => {
-    const key = compareKey(row, creativeProductDims);
-    return { ...row, material_count: previousMaterialCountMap.get(key) || 0 };
-  }) });
-
-  const previousCreativeRows = aggregate(previousAdRows, ["product_name", "material_name", "material_code", "material_type", "video_source", "ad_id", "ad_name", "campaign_name", "operator", "country"]).sort((a, b) => b.spend - a.spend);
-  renderTable("creativeTable", creativeRows, [
-    { key: "ad_name", label: "Ad name", name: true, sticky: true, format: escapeHtml },
-    { key: "material_name", label: "素材", name: true, format: (v) => `<span class="tag material-tag">${escapeHtml(v)}</span>` },
-    { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "material_type", label: "素材类型", filterKey: "material_type", format: (v) => `<span class="tag material-tag">${escapeHtml(v || "未分类")}</span>` },
-    { key: "video_source", label: "视频来源", filterKey: "video_source", format: (v) => v ? `<span class="tag">${escapeHtml(v)}</span>` : "-" },
-    { key: "operator", label: "投手", filterKey: "operator" },
-    { key: "country", label: "国家", filterKey: "country" },
-    { key: "spend", label: "广告花费", format: money, num: true },
-    { key: "purchase_value", label: "归因收入", format: money, num: true },
-    { key: "purchase_times", label: "转化", format: number, num: true },
-    metaAovColumn({ showDelta: false }),
-    { key: "roas", label: "ROAS", format: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "ctr", label: "CTR", format: pct, num: true },
-    { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 100, { previousSummaryRows: previousCreativeRows });
-
-  const operatorRows = aggregate(fact, ["operator"]).sort((a, b) => b.spend - a.spend);
-  renderDonutChart("operatorShareDonut", operatorRows, "spend", "投手花费占比", { labelKey: "operator", limit: 8 });
-  renderQuadrantChart("operatorQuadrant", operatorRows, "operator", { limit: 10 });
-  renderOperatorAlerts(fact);
-  const opProductRows = addComparison(aggregate(fact, ["operator", "product_name"]), previousFact, ["operator", "product_name"]).sort((a, b) => b.spend - a.spend);
-  renderTable("operatorProductTable", opProductRows, [
-    { key: "operator", label: "投手", sticky: true, filterKey: "operator" },
-    { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", format: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "ctr", label: "CTR", format: pct, num: true },
-    { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 100, { previousSummaryRows: aggregate(previousFact, ["operator", "product_name"]) });
-  const opCountryRows = addComparison(aggregate(fact, ["operator", "country"]), previousFact, ["operator", "country"]).sort((a, b) => b.spend - a.spend);
-  renderTable("operatorCountryTable", opCountryRows, [
-    { key: "operator", label: "投手", sticky: true, filterKey: "operator" },
-    { key: "country", label: "国家", filterKey: "country" },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", format: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "ctr", label: "CTR", format: pct, num: true },
-    { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 100, { previousSummaryRows: aggregate(previousFact, ["operator", "country"]) });
+  renderCountryPage(countryModel);
+  renderCreativePage(creativeModel);
 
   const landingTypeRows = aggregate(landingRows, ["landing_type"]).sort((a, b) => b.spend - a.spend);
   renderDonutChart("landingTypeDonut", landingTypeRows, "spend", "落地页花费结构", { labelKey: "landing_type", limit: 8 });
@@ -3810,7 +3469,6 @@ function render() {
     { key: "ctr", label: "CTR", format: pct, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
   ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "material_name"]) });
-  renderOnsite(fact, previousFact);
   renderAttribution();
   renderChannels();
   bindContentFilters();
@@ -3835,8 +3493,12 @@ function bindEvents() {
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       state.view = tab.dataset.view;
+      initFilters();
       render();
     });
+  });
+  document.querySelectorAll("[data-range-preset]").forEach((button) => {
+    button.addEventListener("click", () => applyPendingDatePreset(button.dataset.rangePreset));
   });
   document.addEventListener("click", (event) => {
     const button = event.target.closest(".multi-trigger");
@@ -3852,20 +3514,20 @@ function bindEvents() {
       button.setAttribute("aria-expanded", "true");
     }
   });
-  document.addEventListener("change", (event) => {
-    if (!event.target.matches(".multi-panel input[type='checkbox']")) return;
-    const key = event.target.dataset.filter;
-    state[key] = getSelectedValues(key);
-    updateMultiButton(key);
-    if (key.startsWith("google")) {
-      preserveScroll(renderGoogleAttributionDetail);
-      return;
-    }
-    preserveScroll(render);
-  });
-  document.addEventListener("input", (event) => {
-    if (!event.target.matches("[data-filter-search]")) return;
-    filterMultiOptions(event.target);
+  DashboardFilters.bindInteractions(document, {
+    onChange(key, selected) {
+      if (key === "country") state.countryRegion = "ALL";
+      state[key] = selected;
+      updateMultiButton(key);
+    },
+    preserveScroll,
+    render(key) {
+      if (key.startsWith("google")) {
+        renderGoogleAttributionDetail();
+        return;
+      }
+      render();
+    },
   });
   document.addEventListener("click", (event) => {
     if (event.target.closest(".multi-select")) return;
@@ -3878,6 +3540,12 @@ function bindEvents() {
     const button = event.target.closest("[data-filter-action='clear']");
     if (!button) return;
     const key = button.dataset.filter;
+    if (key === "channelCountries") {
+      resetChannelCountryFilters();
+      preserveScroll(render);
+      return;
+    }
+    if (key === "country") state.countryRegion = "ALL";
     state[key] = [];
     document.querySelectorAll(`#${key}FilterPanel input[type='checkbox']`).forEach((input) => {
       input.checked = false;
@@ -3956,8 +3624,10 @@ function bindEvents() {
     state.compareStartDate = pendingTime.compareMode === "custom" ? pendingTime.compareStartDate : "";
     state.compareEndDate = pendingTime.compareMode === "custom" ? pendingTime.compareEndDate : "";
     syncPendingTimeFromState();
-    initFilters();
-    preserveScroll(render);
+    preserveScroll(() => {
+      initFilters();
+      render();
+    });
   });
   document.getElementById("trendMetric").addEventListener("change", (event) => {
     state.trendMetric = event.target.value;
@@ -3969,6 +3639,7 @@ function bindEvents() {
   });
   document.getElementById("resetFilters").addEventListener("click", () => {
     state.country = [];
+    state.countryRegion = "ALL";
     state.account = [];
     state.product = [];
     state.productForm = [];
@@ -3977,11 +3648,15 @@ function bindEvents() {
     state.landingType = [];
     state.materialType = [];
     state.videoSource = [];
+    state.videoSubtype = [];
     state.materialName = [];
     state.adName = [];
+    state.channelMarket = "US";
+    state.channelCountries = [];
     state.googleAdTypes = [];
     state.googleProducts = [];
     state.googleCountries = [];
+    renderChannelScopeControls();
     initFilters();
     preserveScroll(render);
   });
@@ -3992,7 +3667,7 @@ function boot() {
   const params = new URLSearchParams(location.search);
   {
     const view = params.get("view");
-    state.view = view && titles[view] ? view : state.view;
+    state.view = view && DashboardPages.get(view) ? view : state.view;
   }
   state.startDate = params.get("start") || "";
   state.endDate = params.get("end") || "";
@@ -4011,6 +3686,7 @@ function boot() {
   state.landingType = params.getAll("landingType").filter((value) => value && value !== "全部");
   state.materialType = params.getAll("materialType").filter((value) => value && value !== "全部");
   state.videoSource = params.getAll("videoSource").filter((value) => value && value !== "全部");
+  state.videoSubtype = params.getAll("videoSubtype").filter((value) => value && value !== "全部");
   state.materialName = params.getAll("materialName").filter((value) => value && value !== "全部");
   state.adName = params.getAll("adName").filter((value) => value && value !== "全部");
   document.getElementById("dateRange").textContent = `${data.summary.min_date} 至 ${data.summary.max_date}`;
