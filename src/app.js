@@ -45,9 +45,7 @@ const state = {
   compareMode: "lastMonth",
   compareStartDate: "",
   compareEndDate: "",
-  trendGrain: "day",
   trendMetric: "spend",
-  landingDetailSegment: "product",
   attributionMetric: "platform_value",
   googleAdTypes: [],
   googleProducts: [],
@@ -57,12 +55,6 @@ const state = {
     product: { key: "platform_gmv", direction: "desc" },
     market: { key: "spend", direction: "desc" },
   },
-};
-
-const CHANNEL_OPPORTUNITY_THRESHOLDS = {
-  p0: { platformUnits: 500, captureRate: 0.1 },
-  p1: { platformUnits: 200, captureRate: 0.3 },
-  p2: { platformUnits: 100, captureRate: 0.6 },
 };
 
 const filterOptions = {};
@@ -282,7 +274,6 @@ function filterHref(key, value) {
   params.set("start", state.startDate);
   params.set("end", state.endDate);
   params.set("compareMode", state.compareMode);
-  params.set("grain", state.trendGrain);
   if (state.compareStartDate) params.set("compareStart", state.compareStartDate);
   if (state.compareEndDate) params.set("compareEnd", state.compareEndDate);
   appendValues(params, "country", key === "region" ? countriesForRegion(value) : (key === "country" ? [value] : state.country));
@@ -362,48 +353,6 @@ function addMonths(value, months) {
 
 function daysBetween(start, end) {
   return Math.round((dateToTime(end) - dateToTime(start)) / 86400000) + 1;
-}
-
-function trendBucket(date, grain = state.trendGrain) {
-  if (!date || grain === "day") return date;
-  if (grain === "month") return `${String(date).slice(0, 7)}-01`;
-  const value = new Date(dateToTime(date));
-  const weekday = value.getUTCDay() || 7;
-  value.setUTCDate(value.getUTCDate() - weekday + 1);
-  return value.toISOString().slice(0, 10);
-}
-
-function aggregateTrendRows(rows, dimensions = []) {
-  const withBucket = (rows || []).map((row) => ({
-    ...row,
-    date_start: trendBucket(row.date_start),
-  }));
-  return aggregate(withBucket, ["date_start", ...dimensions])
-    .sort((left, right) => String(left.date_start).localeCompare(String(right.date_start)));
-}
-
-function maxSourceDate(rows, predicate = () => true) {
-  return (rows || []).filter(predicate).reduce((latest, row) => {
-    const value = row.date_start || row.report_date || row.date || "";
-    return value > latest ? value : latest;
-  }, "");
-}
-
-function renderSourceFreshness() {
-  const el = document.getElementById("sourceFreshness");
-  if (!el) return;
-  const sources = [
-    ["Meta", maxSourceDate(data.fact)],
-    ["Google", maxSourceDate(data.google_ad_type_daily)],
-    ["Shopify", maxSourceDate(data.shopify_fact)],
-    ["Amazon", maxSourceDate(data.channel_market_product_daily, (row) => row.channel === "Amazon")],
-    ["TikTok", maxSourceDate(data.channel_market_product_daily, (row) => row.channel === "TikTok")],
-  ];
-  const latest = sources.reduce((value, [, date]) => date > value ? date : value, "");
-  el.innerHTML = `<span>数据截止</span>${sources.map(([label, date]) => {
-    const stale = date && latest && date < latest;
-    return `<b class="${stale ? "is-stale" : ""}" title="${escapeHtml(label)} 数据截止 ${escapeHtml(date || "暂无")}">${escapeHtml(label)} ${escapeHtml(date ? date.slice(5) : "暂无")}</b>`;
-  }).join("")}`;
 }
 
 function comparisonWindow() {
@@ -667,7 +616,7 @@ function normalizeChannelProduct(row) {
   return rawName;
 }
 
-function channelRowsForWindow(source, start, end, options = {}) {
+function channelRowsForWindow(source, start, end) {
   return (source || []).map((row) => enrichProductFields({
       ...row,
       sku_code: String(row?.sku_code || "Unknown").trim().toUpperCase() || "Unknown",
@@ -681,7 +630,7 @@ function channelRowsForWindow(source, start, end, options = {}) {
     if (row.market !== state.channelMarket) return false;
     if (state.channelMarket === "NON_US" && state.channelCountries.length && !state.channelCountries.includes(row.country_code)) return false;
     if (state.channelMarket === "NON_US" && !state.channelCountries.length && !NON_US_COMPARABLE_COUNTRIES.includes(row.country_code)) return false;
-    if (!options.ignoreChannel && state.channel.length && !state.channel.includes(row.channel)) return false;
+    if (state.channel.length && !state.channel.includes(row.channel)) return false;
     if (state.channelProduct.length && !state.channelProduct.includes(row.product_name)) return false;
     return true;
   });
@@ -868,14 +817,6 @@ function updateDatePresetButtons() {
   document.querySelectorAll("[data-range-preset]").forEach((button) => {
     const range = DashboardUI.datePresetRange(button.dataset.rangePreset, data.summary.max_date);
     const active = range.startDate === pendingTime.startDate && range.endDate === pendingTime.endDate;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-}
-
-function updateTrendGrainButtons() {
-  document.querySelectorAll("[data-trend-grain]").forEach((button) => {
-    const active = button.dataset.trendGrain === state.trendGrain;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
@@ -1414,7 +1355,6 @@ function responsiveTickStep(itemCount, width, pad) {
 
 function renderLineChart(id, rows, metric) {
   const el = document.getElementById(id);
-  rows = aggregateTrendRows(rows);
   if (!rows.length) {
     el.innerHTML = "";
     return;
@@ -1471,7 +1411,6 @@ function renderLineChart(id, rows, metric) {
 
 function renderTrendConclusion(id, rows, metric) {
   const el = document.getElementById(id);
-  rows = aggregateTrendRows(rows);
   if (!el) return;
   if (!rows.length) {
     el.innerHTML = `<p class="empty">当前筛选下没有趋势数据。</p>`;
@@ -1511,8 +1450,6 @@ function renderCountryTrendConclusion(countryRows) {
 
 function renderChannelLineChart(id, rows) {
   const el = document.getElementById(id);
-  rows = channelAggregate((rows || []).map((row) => ({ ...row, date_start: trendBucket(row.date_start) })), ["date_start", "channel"])
-    .sort((left, right) => String(left.date_start).localeCompare(String(right.date_start)));
   if (!el) return;
   if (!rows.length) {
     el.innerHTML = `<p class="empty">当前筛选下没有${escapeHtml(channelTrendTitle())}数据。</p>`;
@@ -1887,139 +1824,8 @@ function renderQuadrantChart(id, rows, labelKey, options = {}) {
   `;
 }
 
-function renderCreativeTestingFunnel(rows) {
-  const el = document.getElementById("creativeTestingFunnel");
-  if (!el) return;
-  const byMaterial = new Map();
-  (rows || []).forEach((row) => {
-    const key = materialIdentity(row);
-    if (!key) return;
-    if (!byMaterial.has(key)) byMaterial.set(key, []);
-    byMaterial.get(key).push(row);
-  });
-  const materials = [...byMaterial.values()].map((items) => ({
-    ...summaryOf(items),
-    winner: items.some((row) => /winner/i.test(String(row.status || "")) || /increase/i.test(String(row.action_tag || ""))),
-  }));
-  const stages = [
-    ["素材总数", materials.length],
-    ["产生消耗", materials.filter((row) => row.spend > 0).length],
-    ["产生转化", materials.filter((row) => row.purchase_times > 0).length],
-    ["高效素材", materials.filter((row) => row.winner || (row.purchase_times >= 3 && row.roas >= 2.5)).length],
-  ];
-  const base = Math.max(stages[0][1], 1);
-  el.innerHTML = stages.map(([label, value], index) => `
-    <div class="funnel-step" style="--funnel-width:${Math.max(28, (value / base) * 100)}%">
-      <span>${escapeHtml(label)}</span>
-      <strong>${number(value)}</strong>
-      <small>${index === 0 ? "去重素材编号" : `占素材总数 ${pct(value / base)}`}</small>
-    </div>
-  `).join("");
-}
-
-function renderPlacementAudienceBoundary() {
-  const el = document.getElementById("creativePlacementAudience");
-  if (!el) return;
-  const placementRows = data.meta_placement_daily || data.placement_daily || [];
-  const audienceRows = data.meta_age_gender_daily || data.age_gender_daily || [];
-  if (!placementRows.length && !audienceRows.length) {
-    el.innerHTML = `
-      <strong>当前数据包未包含版位或年龄性别拆分</strong>
-      <p>不使用广告汇总数据推算人群。接入 Meta 对应 breakdown 后，本模块跟随广告产品和素材类型筛选；国家组合不受支持时按全国口径展示。</p>
-    `;
-    return;
-  }
-  el.innerHTML = `<strong>全国口径</strong><p>版位和年龄性别数据已接入；该拆分不与国家筛选组合，避免产生伪国家关联。</p>`;
-}
-
-function renderLandingDetailSegment() {
-  document.querySelectorAll("[data-landing-segment]").forEach((button) => {
-    const active = button.dataset.landingSegment === state.landingDetailSegment;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-  document.querySelectorAll("[data-landing-detail]").forEach((panel) => {
-    panel.classList.toggle("hidden", panel.dataset.landingDetail !== state.landingDetailSegment);
-  });
-}
-
-function channelOpportunityRows() {
-  const current = channelRowsForWindow(data.channel_market_product_daily || [], state.startDate, state.endDate, { ignoreChannel: true })
-    .filter((row) => ["Shopify", "Amazon", "TikTok"].includes(row.channel));
-  const bySku = new Map();
-  current.forEach((row) => {
-    const sku = row.sku_code || "Unknown";
-    const key = `${sku}||${row.product_name}`;
-    if (!bySku.has(key)) {
-      bySku.set(key, { sku_code: sku, product_name: row.product_name, shopify_units: 0, platform_units: 0, platform_sales: 0 });
-    }
-    const item = bySku.get(key);
-    if (row.channel === "Shopify") item.shopify_units += getMetric(row, "channel_units");
-    if (row.channel === "Amazon" || row.channel === "TikTok") {
-      item.platform_units += getMetric(row, "channel_units");
-      item.platform_sales += getMetric(row, "channel_sales");
-    }
-  });
-  return [...bySku.values()].filter((row) => row.platform_units > 0).map((row) => {
-    const capture_rate = row.shopify_units / row.platform_units;
-    let tier = "正常";
-    if (row.platform_units >= CHANNEL_OPPORTUNITY_THRESHOLDS.p0.platformUnits && capture_rate < CHANNEL_OPPORTUNITY_THRESHOLDS.p0.captureRate) tier = "P0";
-    else if (row.platform_units >= CHANNEL_OPPORTUNITY_THRESHOLDS.p1.platformUnits && capture_rate < CHANNEL_OPPORTUNITY_THRESHOLDS.p1.captureRate) tier = "P1";
-    else if (row.platform_units >= CHANNEL_OPPORTUNITY_THRESHOLDS.p2.platformUnits && capture_rate < CHANNEL_OPPORTUNITY_THRESHOLDS.p2.captureRate) tier = "P2";
-    return { ...row, capture_rate, tier };
-  }).sort((left, right) => {
-    const rank = { P0: 0, P1: 1, P2: 2, "正常": 3 };
-    return rank[left.tier] - rank[right.tier] || right.platform_units - left.platform_units;
-  });
-}
-
-function renderChannelOpportunityMatrix(rows) {
-  const el = document.getElementById("channelOpportunityMatrix");
-  const list = document.getElementById("channelOpportunityList");
-  if (!el || !list) return;
-  const source = (rows || []).slice(0, 20);
-  if (!source.length) {
-    el.innerHTML = `<p class="empty">当前市场和时间范围没有可比较的跨平台商品。</p>`;
-    list.innerHTML = "";
-    return;
-  }
-  const width = 720;
-  const height = 340;
-  const pad = { top: 24, right: 24, bottom: 50, left: 60 };
-  const maxUnits = Math.max(...source.map((row) => row.platform_units), 1);
-  const maxCapture = Math.max(...source.map((row) => row.capture_rate), 1);
-  const maxSales = Math.max(...source.map((row) => row.platform_sales), 1);
-  const x = (value) => pad.left + (value / maxUnits) * (width - pad.left - pad.right);
-  const y = (value) => height - pad.bottom - (value / maxCapture) * (height - pad.top - pad.bottom);
-  const colors = { P0: "#b42318", P1: "#b45309", P2: "#2563eb", "正常": "#0b6f6a" };
-  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="平台销量与Shopify捕获率机会矩阵">
-    <line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${y(0.3)}" y2="${y(0.3)}"></line>
-    <text class="axis-label" x="${pad.left}" y="16">Shopify捕获率</text>
-    <text class="axis-label" x="${width - 120}" y="${height - 12}">平台销量</text>
-    ${source.map((row) => {
-      const radius = 6 + Math.sqrt(row.platform_sales / maxSales) * 14;
-      return `<a class="quadrant-point-link" data-filter-key="product_name" data-filter-value="${escapeHtml(row.product_name)}" href="${filterHref("product_name", row.product_name)}">
-        <circle class="quadrant-point" style="fill:${colors[row.tier]}" cx="${x(row.platform_units)}" cy="${y(row.capture_rate)}" r="${radius}"><title>${escapeHtml(`${row.product_name} · 平台销量 ${number(row.platform_units)} · 捕获率 ${pct(row.capture_rate)} · ${row.tier}`)}</title></circle>
-        <text x="${x(row.platform_units) + radius + 3}" y="${y(row.capture_rate) + 4}">${escapeHtml(row.product_name)}</text>
-      </a>`;
-    }).join("")}
-  </svg>`;
-  const opportunities = rows.filter((row) => row.tier !== "正常").slice(0, 6);
-  list.innerHTML = opportunities.map((row) => `<article class="opportunity-item ${row.tier.toLowerCase()}"><b>${row.tier}</b><strong>${escapeHtml(row.product_name)}</strong><span>平台 ${number(row.platform_units)} 件 · Shopify捕获 ${pct(row.capture_rate)}</span></article>`).join("");
-}
-
 function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
   const el = document.getElementById(id);
-  const bucketed = new Map();
-  (rows || []).forEach((row) => {
-    const date = trendBucket(row.date_start);
-    const category = row[categoryKey] || "Unknown";
-    const key = `${date}||${category}`;
-    const current = bucketed.get(key) || { date_start: date, [categoryKey]: category, [metric]: 0 };
-    current[metric] += getMetric(row, metric);
-    bucketed.set(key, current);
-  });
-  rows = [...bucketed.values()].sort((left, right) => String(left.date_start).localeCompare(String(right.date_start)));
   if (!el) return;
   if (!rows.length) {
     el.innerHTML = `<p class="empty">当前筛选下没有趋势数据。</p>`;
@@ -2753,7 +2559,6 @@ function renderProductPage(productModel) {
   document.getElementById("productDetailTitle").textContent = `${segmentMeta.label}明细`;
   renderLineChart("productTrend", productModel.trend, "purchase_value");
   renderTrendConclusion("productTrendConclusion", productModel.trend, "purchase_value");
-  renderQuadrantChart("productOpportunityMatrix", aggregate(productModel.detail, ["standard_product_name"]), "standard_product_name", { limit: 16 });
   renderShareCompareBars("productSegmentStructure", productModel.structure, productModel.dimension, { limit: 8 });
   renderHeatmap("productCountryHeatmap", productModel.country, "standard_product_name", "country", { xLimit: 5, yLimit: 6 });
 
@@ -2872,7 +2677,6 @@ function renderChannels() {
   renderBars("usChannelProductBars", channelAggregate(currentRows, ["sku_code", "product_name"]).sort((a, b) => b.channel_units - a.channel_units), "product_name", "channel_units", 10, {
     subText: (row) => `销售额 ${channelMoney(row.channel_sales, row)} / 件单价 ${channelMoney(row.unit_value, row)}`,
   });
-  renderChannelOpportunityMatrix(channelOpportunityRows());
   document.getElementById("usChannelProductTable")?.closest(".table-wrap")?.classList.add("channel-detail-scroll");
   renderTable("usChannelProductTable", channelProductRows, [
     { key: "channel", label: "渠道", sticky: true, filterKey: "channel" },
@@ -2903,7 +2707,6 @@ function normalizedAttributionDailyRows() {
   (data.shopify_daily || []).forEach((row) => {
     const current = byDate.get(row.date_start) || { date_start: row.date_start };
     if (current.shopify_orders === null || current.shopify_orders === undefined) current.shopify_orders = row.orders;
-    if (current.shopify_net_sales === null || current.shopify_net_sales === undefined) current.shopify_net_sales = row.net_sales;
     if (current.shopify_total_sales === null || current.shopify_total_sales === undefined) current.shopify_total_sales = row.total_sales;
     byDate.set(row.date_start, current);
   });
@@ -2953,7 +2756,7 @@ function attributionPeriodSummary(rows) {
   };
   return {
     shopifyOrders: optionalSum("shopify_orders"),
-    shopifyNetSales: optionalSum("shopify_net_sales") ?? optionalSum("shopify_total_sales"),
+    shopifyTotalSales: optionalSum("shopify_total_sales"),
     meta: {
       spend: optionalSum("meta_spend"),
       value: optionalSum("meta_value"),
@@ -2979,17 +2782,17 @@ function renderAttributionKpis(rows) {
   const google = selectedAttributionChannel("Google Ads", summary.google);
   const metaEfficiency = DashboardMetrics.calculateChannelEfficiency(meta);
   const googleEfficiency = DashboardMetrics.calculateChannelEfficiency(google);
-  const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(meta, google, summary.shopifyNetSales);
+  const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(meta, google, summary.shopifyTotalSales);
   const availability = (key) => `${rows.filter((row) => row[key] !== null && row[key] !== undefined).length}/${rows.length} 天`;
   const channelCard = (label, channel, efficiency, coverageKey) => `
     <article><span>${escapeHtml(label)}</span><strong>${money(channel.spend)} / ${money(channel.value)}</strong>
       <small>花费 / 平台 GMV · ROAS ${ratio(efficiency.roas)}<br>${number(channel.purchases)} 转化 · CPA ${money(efficiency.cpa)} · AOV ${money(efficiency.aov)} · ${availability(coverageKey)}</small></article>`;
   document.getElementById("attributionKpis").innerHTML = `
-    <article><span>Shopify Net Sales</span><strong>${money(summary.shopifyNetSales)}</strong><small>${number(summary.shopifyOrders)} 订单 · 已扣退款净销售 · ${availability("shopify_net_sales")}</small></article>
+    <article><span>Shopify Total Sales</span><strong>${money(summary.shopifyTotalSales)}</strong><small>${number(summary.shopifyOrders)} 订单 · 站内财务基准 · ${availability("shopify_total_sales")}</small></article>
     ${channelCard("Meta", meta, metaEfficiency, "meta_spend")}
     ${channelCard("Google Ads", google, googleEfficiency, "google_spend")}
     <article><span>双渠道总览</span><strong>${money(diagnostics.totalSpend)}</strong><small>合计花费 · 混合 MER ${ratio(diagnostics.blendedMer)}<br>总广告投入率 ${pct(diagnostics.adInvestmentRate)}</small></article>
-    <article><span>归因溢出</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong><small>平台 GMV ${money(diagnostics.totalValue)} vs Shopify Net Sales<br>仅表示平台认领溢出，不等同投放饱和</small></article>`;
+    <article><span>归因溢出</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong><small>平台 GMV ${money(diagnostics.totalValue)} vs Shopify Total Sales<br>仅表示平台认领溢出，不等同投放饱和</small></article>`;
 }
 
 function renderAttributionTrend(rows) {
@@ -3027,9 +2830,8 @@ function renderAttributionTrend(rows) {
         series.push({ date_start: row.date_start, series: "Google Ads", value: googleRoas });
       }
     } else {
-      const shopifyNetSales = row.shopify_net_sales ?? row.shopify_total_sales;
-      if (shopifyNetSales !== null && shopifyNetSales !== undefined) {
-        series.push({ date_start: row.date_start, series: "Shopify Net Sales", value: shopifyNetSales });
+      if (row.shopify_total_sales !== null && row.shopify_total_sales !== undefined) {
+        series.push({ date_start: row.date_start, series: "Shopify Total Sales", value: row.shopify_total_sales });
       }
     }
   });
@@ -3044,7 +2846,7 @@ function attributionEfficiencyRows(summary) {
   const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(
     selectedAttributionChannel("Meta", summary.meta),
     selectedAttributionChannel("Google Ads", summary.google),
-    summary.shopifyNetSales,
+    summary.shopifyTotalSales,
   );
   return channels.map(([channel, values]) => {
     const efficiency = DashboardMetrics.calculateChannelEfficiency(values);
@@ -3066,10 +2868,10 @@ function renderAttributionDiagnostics(summary) {
   const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(
     selectedAttributionChannel("Meta", summary.meta),
     selectedAttributionChannel("Google Ads", summary.google),
-    summary.shopifyNetSales,
+    summary.shopifyTotalSales,
   );
   document.getElementById("attributionDiagnostics").innerHTML = `
-    <div><span>Shopify Net Sales</span><strong>${money(summary.shopifyNetSales)}</strong></div>
+    <div><span>Shopify Total Sales</span><strong>${money(summary.shopifyTotalSales)}</strong></div>
     <div><span>总广告投入率</span><strong>${pct(diagnostics.adInvestmentRate)}</strong></div>
     <div><span>混合 MER</span><strong>${ratio(diagnostics.blendedMer)}</strong></div>
     <div><span>平台归因溢出率</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong></div>
@@ -3411,7 +3213,7 @@ function renderAttribution() {
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "aov", label: "AOV", format: money, num: true },
   ], 2, {
-    insight: "对比两个平台的花费结构、平台归因结构与效率；平台 GMV 不与 Shopify Net Sales 相加为总收入。",
+    insight: "对比两个平台的花费结构、平台归因结构与效率；平台 GMV 不与 Shopify Total Sales 相加为总收入。",
   });
   renderAttributionDiagnostics(summary);
   renderAttributionIssues();
@@ -3490,8 +3292,6 @@ function renderCreativePage(creativeModel) {
   document.getElementById("creativeProductMaterialTitle").textContent = `产品 x ${meta.label}`;
   renderLineChart("creativeTrend", creativeModel.trend, "purchase_value");
   renderTrendConclusion("creativeTrendConclusion", creativeModel.trend, "purchase_value");
-  renderCreativeTestingFunnel(creativeModel.detail);
-  renderPlacementAudienceBoundary();
   renderDonutChart("creativeStructureDonut", creativeModel.structure, "spend", `${meta.label}花费结构`, {
     labelKey: creativeModel.dimension,
     limit: 8,
@@ -3571,8 +3371,6 @@ function render() {
   DashboardPageShell.apply(document.getElementById(`${state.view}View`), page.modules);
   renderContextFilters();
   renderPeriodHint();
-  updateTrendGrainButtons();
-  renderSourceFreshness();
   const attributionOnly = state.view === "attribution";
   ["insightSummary", "kpis", "comparison", "actionInsights"].forEach((id) => {
     const compactPage = ["country", "creative"].includes(state.view) && (id === "comparison" || id === "actionInsights");
@@ -3601,6 +3399,7 @@ function render() {
   renderBars("countryBars", aggregate(fact, ["country"]), "country", "purchase_value", 80);
   renderBars("productBars", aggregate(fact, ["product_name"]), "product_name", "purchase_value", 80);
   renderBars("materialBars", aggregate(adRows, ["material_name"]), "material_name", "spend", 120, { clickable: false });
+  renderBars("overviewOperatorBars", aggregate(fact, ["operator"]), "operator", "spend", 8);
   renderAlerts(fact);
 
   renderProductPage(productModel);
@@ -3671,7 +3470,6 @@ function render() {
     { key: "ctr", label: "CTR", format: pct, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
   ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "material_name"]) });
-  renderLandingDetailSegment();
   renderAttribution();
   renderChannels();
   bindContentFilters();
@@ -3703,19 +3501,6 @@ function bindEvents() {
   document.querySelectorAll("[data-range-preset]").forEach((button) => {
     button.addEventListener("click", () => applyPendingDatePreset(button.dataset.rangePreset));
   });
-  document.querySelectorAll("[data-trend-grain]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.trendGrain = button.dataset.trendGrain;
-      preserveScroll(render);
-    });
-  });
-  document.querySelectorAll("[data-landing-segment]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.landingDetailSegment = button.dataset.landingSegment;
-      preserveScroll(renderLandingDetailSegment);
-    });
-  });
-  document.getElementById("reloadDashboardData").addEventListener("click", () => location.reload());
   document.addEventListener("click", (event) => {
     const button = event.target.closest(".multi-trigger");
     if (!button) return;
@@ -3894,10 +3679,6 @@ function boot() {
   }
   state.compareStartDate = params.get("compareStart") || "";
   state.compareEndDate = params.get("compareEnd") || "";
-  {
-    const grain = params.get("grain");
-    state.trendGrain = ["day", "week", "month"].includes(grain) ? grain : "day";
-  }
   state.country = params.getAll("country").filter((value) => value && value !== "全部");
   state.account = params.getAll("account").filter((value) => value && value !== "全部");
   state.product = params.getAll("product").filter((value) => value && value !== "全部");

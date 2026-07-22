@@ -35,11 +35,6 @@
           <button type="button" data-range-preset="30d">近30天</button>
           <button type="button" data-range-preset="month">本月</button>
         </div>
-        <div class="trend-grain-control segmented-control" aria-label="趋势粒度">
-          <button type="button" data-trend-grain="day" aria-pressed="true">日</button>
-          <button type="button" data-trend-grain="week" aria-pressed="false">周</button>
-          <button type="button" data-trend-grain="month" aria-pressed="false">月</button>
-        </div>
         <label class="date-filter">
           开始日期
           <input id="startDateFilter" type="date" />
@@ -70,9 +65,7 @@
           <div class="multi-panel" id="accountFilterPanel"></div>
         </div>
         <button id="applyTimeFilter" class="apply-time-button" type="button">应用时间</button>
-        <button id="reloadDashboardData" class="reload-data-button" type="button" title="重新载入最新已发布数据" aria-label="重新载入最新已发布数据">刷新</button>
         <p id="periodHint" class="period-hint"></p>
-        <div id="sourceFreshness" class="source-freshness" aria-label="各数据源截止日期"></div>
       </section>
     </header>
 
@@ -155,9 +148,6 @@
                 <option value="purchase_value">销售额</option>
                 <option value="purchase_times">转化数</option>
                 <option value="roas">ROAS</option>
-                <option value="cpa">CPA</option>
-                <option value="ctr">CTR</option>
-                <option value="cvr">CVR</option>
               </select>
             </header>
             <div class="trend-body">
@@ -193,6 +183,13 @@
             </header>
             <div id="materialBars" class="bars"></div>
           </article>
+          <article class="panel">
+            <header>
+              <h3>投手排行</h3>
+              <button class="metric-info" type="button" title="按广告花费排名" aria-label="投手排行口径">i</button>
+            </header>
+            <div id="overviewOperatorBars" class="bars"></div>
+          </article>
         </section>
       </section>
 
@@ -211,13 +208,6 @@
             <div id="productTrend" class="chart"></div>
             <aside id="productTrendConclusion" class="chart-conclusion"></aside>
           </div>
-        </article>
-        <article class="panel opportunity-matrix" data-module="structure">
-          <header>
-            <h3>产品规模 x 效率矩阵</h3>
-            <button class="metric-info" type="button" title="横轴为花费，纵轴为ROAS，气泡大小为Meta归因GMV" aria-label="产品机会矩阵口径">i</button>
-          </header>
-          <div id="productOpportunityMatrix" class="quadrant-chart"></div>
         </article>
         <section class="split-grid" data-module="structure">
           <article class="panel">
@@ -288,13 +278,6 @@
           <button type="button" data-segment="source" aria-pressed="false">视频来源</button>
           <button type="button" data-segment="subtype" aria-pressed="false">视频细分</button>
         </div>
-        <article class="panel creative-testing-panel" data-module="structure">
-          <header>
-            <h3>素材测试漏斗</h3>
-            <button class="metric-info" type="button" title="素材总数、产生消耗、产生转化和高效素材的去重数量" aria-label="素材测试漏斗口径">i</button>
-          </header>
-          <div id="creativeTestingFunnel" class="funnel-track"></div>
-        </article>
         <div class="creative-segment-module" data-creative-segment-module data-module="trend">
           <article class="panel trend-panel" data-module="trend">
             <header>
@@ -335,13 +318,6 @@
           <div class="table-wrap">
             <table id="creativeDetailTable"></table>
           </div>
-        </article>
-        <article class="panel placement-audience-panel" data-module="detail">
-          <header>
-            <h3>版位与人群</h3>
-            <button class="metric-info" type="button" title="仅在Meta API提供对应拆分时展示；不支持国家组合时明确标注全国口径" aria-label="版位与人群口径">i</button>
-          </header>
-          <div id="creativePlacementAudience" class="boundary-state"></div>
         </article>
       </section>
 
@@ -385,12 +361,8 @@
             <table id="landingTypeTable"></table>
           </div>
         </article>
-        <div id="landingDetailSegmentControl" class="segmented-control page-segment-control" aria-label="落地页下钻维度">
-          <button type="button" data-landing-segment="product" aria-pressed="true">产品</button>
-          <button type="button" data-landing-segment="country" aria-pressed="false">国家</button>
-        </div>
         <section class="landing-detail-stack" data-module="detail">
-          <article class="panel landing-detail-panel" data-landing-detail="product">
+          <article class="panel">
             <header>
               <h3>落地页 x 产品</h3>
               <button class="metric-info" type="button" title="通过落地页类型或国家筛选继续下钻" aria-label="落地页产品口径">i</button>
@@ -399,7 +371,7 @@
               <table id="landingProductTable"></table>
             </div>
           </article>
-          <article class="panel landing-detail-panel hidden" data-landing-detail="country">
+          <article class="panel">
             <header>
               <h3>落地页 x 国家</h3>
               <button class="metric-info" type="button" title="通过落地页类型或产品筛选继续下钻" aria-label="落地页国家口径">i</button>
@@ -435,7 +407,7 @@
                 <option value="spend">广告花费</option>
                 <option value="purchases">平台转化</option>
                 <option value="platform_roas">平台 ROAS</option>
-                <option value="shopify_net_sales">Shopify Net Sales</option>
+                <option value="shopify_total_sales">Shopify Total Sales</option>
               </select>
             </header>
             <div id="attributionTrend" class="chart attribution-chart"></div>
@@ -516,14 +488,6 @@
             <button class="metric-info" type="button" title="跟随渠道筛选，按销量展示产品表现" aria-label="渠道产品排行口径">i</button>
           </header>
           <div id="usChannelProductBars" class="bars"></div>
-        </article>
-        <article class="panel opportunity-matrix" data-module="structure">
-          <header>
-            <h3>跨平台机会矩阵</h3>
-            <button class="metric-info" type="button" title="平台销量高但Shopify捕获率低的产品优先处理；仅使用SKU对齐且销售额大于0的数据" aria-label="跨平台机会矩阵口径">i</button>
-          </header>
-          <div id="channelOpportunityMatrix" class="quadrant-chart"></div>
-          <div id="channelOpportunityList" class="opportunity-list"></div>
         </article>
         <article class="panel" data-module="detail">
           <header>

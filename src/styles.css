@@ -3129,191 +3129,6 @@ tfoot td {
   box-shadow: inset 3px 0 0 #2563eb;
 }
 
-.trend-grain-control {
-  align-self: end;
-  grid-auto-columns: minmax(38px, 1fr);
-}
-
-.reload-data-button {
-  height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0 12px;
-  background: white;
-  color: var(--ink);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.reload-data-button:hover {
-  border-color: #9eabb8;
-  background: #f8fafc;
-}
-
-.source-freshness {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  min-height: 24px;
-  color: var(--muted);
-  font-size: 10.5px;
-}
-
-.source-freshness > span {
-  margin-right: 2px;
-  font-weight: 800;
-}
-
-.source-freshness b {
-  border: 1px solid #d9e2e9;
-  border-radius: 6px;
-  padding: 3px 6px;
-  background: #f7f9fb;
-  color: #445164;
-  font-weight: 750;
-}
-
-.source-freshness b.is-stale {
-  border-color: #f2d3a9;
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
-.opportunity-matrix .quadrant-chart {
-  min-height: 300px;
-  padding: 6px 10px 10px;
-}
-
-.funnel-track {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 10px;
-}
-
-.funnel-step {
-  position: relative;
-  min-width: 0;
-  min-height: 78px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 10px;
-  overflow: hidden;
-  background: #fbfcfd;
-}
-
-.funnel-step::before {
-  content: "";
-  position: absolute;
-  inset: auto auto 0 0;
-  width: var(--funnel-width);
-  height: 4px;
-  background: var(--accent);
-}
-
-.funnel-step span,
-.funnel-step small {
-  display: block;
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 700;
-}
-
-.funnel-step strong {
-  display: block;
-  margin: 5px 0 3px;
-  font-size: 20px;
-}
-
-.boundary-state {
-  margin: 10px;
-  border: 1px dashed #bdc8d3;
-  border-radius: 7px;
-  padding: 12px;
-  background: #f8fafc;
-}
-
-.boundary-state strong {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-}
-
-.boundary-state p {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.landing-detail-panel.hidden {
-  display: none;
-}
-
-.table-copy-button {
-  margin-left: auto;
-  min-height: 28px;
-  padding: 4px 9px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.table-copy-button:hover,
-.table-copy-button:focus-visible {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.opportunity-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-  padding: 0 10px 10px;
-}
-
-.opportunity-item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 3px 7px;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: 6px;
-  padding: 8px;
-  background: #fbfcfd;
-}
-
-.opportunity-item.p0 { border-left-color: var(--danger); }
-.opportunity-item.p1 { border-left-color: var(--warn); }
-.opportunity-item.p2 { border-left-color: var(--blue); }
-
-.opportunity-item b {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.opportunity-item strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-}
-
-.opportunity-item span {
-  grid-column: 1 / -1;
-  color: var(--muted);
-  font-size: 10px;
-}
-
 @media (max-width: 1180px) {
   .overview-layout {
     grid-template-columns: 1fr;
@@ -3352,9 +3167,7 @@ tfoot td {
   }
 
   .date-presets,
-  .trend-grain-control,
   .period-hint,
-  .source-freshness,
   .filterbar .top-account-filter {
     grid-column: 1 / -1;
   }
@@ -3387,11 +3200,6 @@ tfoot td {
   .creative-groups,
   .operator-layout {
     grid-template-columns: 1fr;
-  }
-
-  .funnel-track,
-  .opportunity-list {
-    grid-template-columns: 1fr 1fr;
   }
 
   .insight-summary article,
