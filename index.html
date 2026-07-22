@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>广告投放看板</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="./src/styles.css?v=20260721-component-refactor-r4" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260722-product-source-split" />
   </head>
   <body class="cockpit-shell-marker">
     <header class="topbar">
@@ -24,7 +24,7 @@
           <button class="tab" data-view="creative">素材</button>
           <button class="tab" data-view="landing">落地页</button>
           <button class="tab" data-view="attribution">归因</button>
-          <button class="tab" data-view="channels">三渠道</button>
+          <button class="tab" data-view="channels">渠道情况</button>
         </nav>
       </div>
 
@@ -84,10 +84,15 @@
           <button type="button" class="multi-trigger" id="countryFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="countryFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="product" data-views="product,country,creative,landing,channels">
-          <span class="filter-label">产品</span>
+        <div class="multi-select" data-filter="product" data-views="overview,product,country,creative,landing">
+          <span class="filter-label">广告产品</span>
           <button type="button" class="multi-trigger" id="productFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="productFilterPanel"></div>
+        </div>
+        <div class="multi-select" data-filter="channelProduct" data-views="channels">
+          <span class="filter-label">渠道产品</span>
+          <button type="button" class="multi-trigger" id="channelProductFilterButton" aria-expanded="false">全部</button>
+          <div class="multi-panel" id="channelProductFilterPanel"></div>
         </div>
         <div class="multi-select" data-filter="productForm" data-views="product,creative">
           <span class="filter-label">单品/套组</span>
@@ -507,16 +512,17 @@
 
     <script src="./data/dashboard-data.js?v=20260720-creative-detail"></script>
     <script src="./src/dashboard-metrics.js?v=20260714-meta-aov"></script>
-    <script src="./src/components/filter-controls.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/components/segmented-control.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/components/data-table.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/components/page-shell.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/components/filter-controls.js?v=20260722-product-source-split"></script>
+    <script src="./src/components/segmented-control.js?v=20260722-product-source-split"></script>
+    <script src="./src/components/data-table.js?v=20260722-product-source-split"></script>
+    <script src="./src/components/page-shell.js?v=20260722-product-source-split"></script>
     <script src="./src/dashboard-ui.js?v=20260720-cockpit"></script>
-    <script src="./src/dashboard-state.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/page-config.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/pages/country-page.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/pages/creative-page.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/pages/product-page.js?v=20260721-component-refactor-r4"></script>
-    <script src="./src/app.js?v=20260721-component-refactor-r4"></script>
+    <script src="./src/dashboard-state.js?v=20260722-product-source-split"></script>
+    <script src="./src/page-config.js?v=20260722-product-source-split"></script>
+    <script src="./src/pages/country-page.js?v=20260722-product-source-split"></script>
+    <script src="./src/pages/creative-page.js?v=20260722-product-source-split"></script>
+    <script src="./src/pages/product-page.js?v=20260722-product-source-split"></script>
+    <script src="./src/product-filter-options.js?v=20260722-product-source-split"></script>
+    <script src="./src/app.js?v=20260722-product-source-split"></script>
   </body>
 </html>

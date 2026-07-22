@@ -30,6 +30,7 @@ const state = {
   countryRegion: "ALL",
   account: [],
   product: [],
+  channelProduct: [],
   productForm: [],
   channel: [],
   channelMarket: "US",
@@ -244,10 +245,13 @@ function escapeJsString(value) {
 }
 
 function filterControlId(key) {
+  if (state.view === "channels" && (key === "product_name" || key === "standard_product_name")) {
+    return "channelProduct";
+  }
   return {
     country: "country",
-    product_name: "product",
-    standard_product_name: "product",
+    product_name: state.view === "channels" ? "channelProduct" : "product",
+    standard_product_name: state.view === "channels" ? "channelProduct" : "product",
     product_form: "productForm",
     operator: "operator",
     account_name: "account",
@@ -274,7 +278,9 @@ function filterHref(key, value) {
   if (state.compareEndDate) params.set("compareEnd", state.compareEndDate);
   appendValues(params, "country", key === "region" ? countriesForRegion(value) : (key === "country" ? [value] : state.country));
   appendValues(params, "account", key === "account_name" ? [value] : state.account);
-  appendValues(params, "product", (key === "product_name" || key === "standard_product_name") ? [value] : state.product);
+  const productClick = key === "product_name" || key === "standard_product_name";
+  appendValues(params, "product", productClick && state.view !== "channels" ? [value] : state.product);
+  appendValues(params, "channelProduct", productClick && state.view === "channels" ? [value] : state.channelProduct);
   appendValues(params, "productForm", key === "product_form" ? [value] : state.productForm);
   appendValues(params, "channel", key === "channel" ? [value] : state.channel);
   appendValues(params, "operator", key === "operator" ? [value] : state.operator);
@@ -625,8 +631,7 @@ function channelRowsForWindow(source, start, end) {
     if (state.channelMarket === "NON_US" && state.channelCountries.length && !state.channelCountries.includes(row.country_code)) return false;
     if (state.channelMarket === "NON_US" && !state.channelCountries.length && !NON_US_COMPARABLE_COUNTRIES.includes(row.country_code)) return false;
     if (state.channel.length && !state.channel.includes(row.channel)) return false;
-    if (state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
-    if (state.productForm.length && !state.productForm.includes(row.product_form)) return false;
+    if (state.channelProduct.length && !state.channelProduct.includes(row.product_name)) return false;
     return true;
   });
 }
@@ -641,17 +646,12 @@ function comparisonChannelRows(source = data.channel_market_product_daily) {
   return channelRowsForWindow(source, period.start, period.end);
 }
 
-function productOptionsForView() {
-  if (state.view === "channels") {
-    return [...new Set((data.channel_market_product_daily || []).map(normalizeChannelProduct))]
-      .sort((a, b) => a.localeCompare(b, "zh-CN"));
-  }
-  return [...new Set([
-    ...data.fact.map((row) => row.product_name || "Unknown"),
-    ...data.fact.map((row) => row.standard_product_name || row.product_name || "Unknown"),
-    ...(data.shopify_fact || []).map((row) => inferShopifyProductName(row.product_title)),
-    ...(data.channel_market_product_daily || []).map((row) => normalizeChannelProduct(row)),
-  ])].sort((a, b) => a.localeCompare(b, "zh-CN"));
+function advertisingProductOptions() {
+  return DashboardProductFilters.advertisingOptions(data.fact);
+}
+
+function channelProductOptions() {
+  return DashboardProductFilters.channelOptions(data.channel_market_product_daily || []);
 }
 
 function channelAggregate(rows, dims = []) {
@@ -835,10 +835,10 @@ function applyPendingDatePreset(preset) {
 function initFilters() {
   const countries = [...new Set(data.fact.map((row) => row.country || "Unknown"))].sort();
   const accounts = accountOptionsForView();
-  const products = productOptionsForView();
-  if (state.view === "channels") {
-    state.product = state.product.filter((value) => products.includes(value));
-  }
+  const products = advertisingProductOptions();
+  const channelProducts = channelProductOptions();
+  state.product = state.product.filter((value) => products.includes(value));
+  state.channelProduct = state.channelProduct.filter((value) => channelProducts.includes(value));
   const productForms = [...new Set(data.fact.map((row) => row.product_form || "待确认"))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   const operators = [...new Set(data.fact.map((row) => row.operator || "Unknown"))].sort();
   const channels = [...new Set([
@@ -852,6 +852,7 @@ function initFilters() {
   setMultiOptions("country", countries, state.country);
   setMultiOptions("account", accounts, state.account);
   setMultiOptions("product", products, state.product);
+  setMultiOptions("channelProduct", channelProducts, state.channelProduct);
   setMultiOptions("productForm", productForms, state.productForm);
   setMultiOptions("channel", channels, state.channel);
   setMultiOptions("operator", operators, state.operator);
@@ -1090,7 +1091,7 @@ function renderActionInsights(fact, previousFact, context = {}) {
       {
         label: "主力渠道",
         title: topChannel ? `${topChannel.channel} 占比 ${pct(topChannel.sales_share)}` : "暂无渠道数据",
-        body: topChannel ? `销售额 ${money(topChannel.channel_sales)}，销量 ${number(topChannel.channel_units)}。` : "当前筛选下没有三渠道数据。",
+        body: topChannel ? `销售额 ${money(topChannel.channel_sales)}，销量 ${number(topChannel.channel_units)}。` : "当前筛选下没有渠道销售数据。",
         tone: "neutral",
       },
       {
@@ -1269,7 +1270,7 @@ function renderKpis(rows, previousRows, context = {}) {
       channelSalesKpi("Shopify销售额", "Shopify", shopify, previousShopify, "Shopify Net Sales"),
       channelSalesKpi("Amazon销售额", "Amazon", amazon, previousAmazon, "Source USD GMV"),
       channelSalesKpi("TikTok销售额", "TikTok", tiktok, previousTiktok, "Source USD GMV"),
-      { label: "三渠道销量", value: channelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), previous: previousChannelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), format: number, hint: "Units 汇总" },
+      { label: "渠道销量", value: channelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), previous: previousChannelRows.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), format: number, hint: "Units 汇总" },
       { label: "最高销量产品", value: topProductChannel?.product_name || "-", note: topProductChannel ? `${number(topProductChannel.channel_units)} 件` : "当前周期", format: String, hint: topProductChannel?.channel || "" },
     ]);
     return;
@@ -2223,8 +2224,8 @@ function applyContentFilter(key, value) {
   }
   const mapping = {
     country: "country",
-    product_name: "product",
-    standard_product_name: "product",
+    product_name: state.view === "channels" ? "channelProduct" : "product",
+    standard_product_name: state.view === "channels" ? "channelProduct" : "product",
     product_form: "productForm",
     channel: "channel",
     operator: "operator",
@@ -3642,6 +3643,7 @@ function bindEvents() {
     state.countryRegion = "ALL";
     state.account = [];
     state.product = [];
+    state.channelProduct = [];
     state.productForm = [];
     state.channel = [];
     state.operator = [];
@@ -3680,6 +3682,7 @@ function boot() {
   state.country = params.getAll("country").filter((value) => value && value !== "全部");
   state.account = params.getAll("account").filter((value) => value && value !== "全部");
   state.product = params.getAll("product").filter((value) => value && value !== "全部");
+  state.channelProduct = params.getAll("channelProduct").filter((value) => value && value !== "全部");
   state.productForm = params.getAll("productForm").filter((value) => value && value !== "全部");
   state.channel = params.getAll("channel").filter((value) => value && value !== "全部");
   state.operator = params.getAll("operator").filter((value) => value && value !== "全部");

@@ -16,6 +16,54 @@ const DashboardMetrics = (() => {
     return calculateAov(revenue, conversions);
   };
 
+  const summarizeRows = (rows) => {
+    const totals = rows.reduce((sum, row) => ({
+      spend: sum.spend + Number(row.spend || 0),
+      purchase_value: sum.purchase_value + Number(row.purchase_value || 0),
+      purchase_times: sum.purchase_times + Number(row.purchase_times || 0),
+      impressions: sum.impressions + Number(row.impressions || 0),
+      clicks: sum.clicks + Number(row.clicks || 0),
+    }), { spend: 0, purchase_value: 0, purchase_times: 0, impressions: 0, clicks: 0 });
+    return {
+      ...totals,
+      roas: totals.spend ? totals.purchase_value / totals.spend : 0,
+      cpa: totals.purchase_times ? totals.spend / totals.purchase_times : 0,
+      ctr: totals.impressions ? totals.clicks / totals.impressions : 0,
+      cvr: totals.clicks ? totals.purchase_times / totals.clicks : 0,
+      aov: totals.purchase_times ? totals.purchase_value / totals.purchase_times : 0,
+    };
+  };
+
+  const groupRows = (rows = [], dimensions = []) => {
+    const groups = new Map();
+    for (const row of rows) {
+      const key = dimensions.map((dimension) => row[dimension] ?? "Unknown").join("||") || "all";
+      if (!groups.has(key)) {
+        groups.set(key, {
+          ...Object.fromEntries(dimensions.map((dimension) => [dimension, row[dimension] ?? "Unknown"])),
+          spend: 0,
+          impressions: 0,
+          reach: 0,
+          clicks: 0,
+          purchase_times: 0,
+          purchase_value: 0,
+        });
+      }
+      const group = groups.get(key);
+      group.spend += Number(row.spend || 0);
+      group.impressions += Number(row.impressions || 0);
+      group.reach += Number(row.reach || 0);
+      group.clicks += Number(row.clicks || 0);
+      group.purchase_times += Number(row.purchase_times || 0);
+      group.purchase_value += Number(row.purchase_value || 0);
+    }
+    return [...groups.values()].map((group) => ({
+      ...group,
+      ...summarizeRows([group]),
+      cpm: group.impressions ? (group.spend / group.impressions) * 1000 : 0,
+    }));
+  };
+
   const finiteNumber = (value) => {
     if (value === null || value === undefined || value === "") return null;
     const result = Number(value);
@@ -91,6 +139,8 @@ const DashboardMetrics = (() => {
   return {
     calculateAov,
     calculateAovFromRows,
+    summarizeRows,
+    groupRows,
     calculateChannelEfficiency,
     calculateAttributionDiagnostics,
     aggregateGoogleMetrics,
