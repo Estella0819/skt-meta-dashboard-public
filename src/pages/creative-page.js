@@ -97,6 +97,55 @@
       }).sort((left, right) => right.spend - left.spend);
     }
 
+    function hierarchyRow(row, depth, nodeType, nodeValue, parentValue, expandable, expanded) {
+      return {
+        ...row,
+        _depth: depth,
+        _nodeType: nodeType,
+        _nodeValue: nodeValue,
+        _parentValue: parentValue ?? null,
+        _expandable: expandable,
+        _expanded: expanded,
+      };
+    }
+
+    function buildHierarchy(currentRows, previousRows, expandedType = "", expandedSources = []) {
+      const rows = [];
+      const types = aggregateWithComparison(currentRows, previousRows, ["material_type"]);
+      for (const type of types) {
+        const isVideo = type.material_type === videoMaterialType;
+        rows.push(hierarchyRow(
+          type, 0, "material_type", type.material_type, null,
+          isVideo, isVideo && expandedType === videoMaterialType,
+        ));
+        if (!isVideo || expandedType !== videoMaterialType) continue;
+        const normalizeVideoSource = (row) => ({ ...row, video_source: row.video_source ?? "" });
+        const currentVideo = currentRows
+          .filter((row) => row.material_type === videoMaterialType)
+          .map(normalizeVideoSource);
+        const previousVideo = previousRows
+          .filter((row) => row.material_type === videoMaterialType)
+          .map(normalizeVideoSource);
+        const sources = aggregateWithComparison(currentVideo, previousVideo, ["video_source"]);
+        for (const source of sources) {
+          const expanded = expandedSources.includes(source.video_source);
+          rows.push(hierarchyRow(
+            source, 1, "video_source", source.video_source, videoMaterialType, true, expanded,
+          ));
+          if (!expanded) continue;
+          rows.push(...aggregateWithComparison(
+            currentVideo.filter((row) => row.video_source === source.video_source),
+            previousVideo.filter((row) => row.video_source === source.video_source),
+            ["video_subtype"],
+          ).map((subtype) => hierarchyRow(
+            subtype, 2, "video_subtype", subtype.video_subtype,
+            source.video_source, false, false,
+          )));
+        }
+      }
+      return rows;
+    }
+
     function selectModel(adRows, previousRows, filters = {}, requestedSegment = "type") {
       const segment = segmentDimension[requestedSegment] ? requestedSegment : "type";
       const dimension = segmentDimension[segment];
@@ -124,6 +173,6 @@
       };
     }
 
-    return { applyFilters, segmentDimension, selectModel };
+    return { applyFilters, buildHierarchy, segmentDimension, selectModel };
   },
 );

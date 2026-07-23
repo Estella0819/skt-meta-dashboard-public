@@ -117,6 +117,72 @@
       });
     }
 
+    function buildRegionHierarchy(currentRows, previousRows, expandedRegions = []) {
+      const regions = addRegionShares(
+        addComparison(
+          aggregateRegions(currentRows),
+          previousRows.map((row) => ({ ...row, region: regionForCountry(row.country) })),
+          ["region"],
+        ),
+        aggregateRegions(previousRows),
+      ).sort((left, right) => right.purchase_value - left.purchase_value);
+      const currentTotals = DashboardMetricsApi.summarizeRows(currentRows);
+      const previousTotals = DashboardMetricsApi.summarizeRows(previousRows);
+      const output = [];
+      for (const region of regions) {
+        const expanded = expandedRegions.includes(region.region);
+        output.push({
+          ...region,
+          _depth: 0,
+          _nodeType: "region",
+          _nodeValue: region.region,
+          _expandable: true,
+          _expanded: expanded,
+        });
+        if (!expanded) continue;
+        const currentCountries = currentRows
+          .filter((row) => regionForCountry(row.country) === region.region);
+        const previousCountries = previousRows
+          .filter((row) => regionForCountry(row.country) === region.region);
+        const previousCountryGroups = DashboardMetricsApi.groupRows(previousCountries, ["country"]);
+        const previousCountryMap = new Map(previousCountryGroups.map((row) => [row.country, row]));
+        output.push(...addComparison(
+          DashboardMetricsApi.groupRows(currentCountries, ["country"]),
+          previousCountryGroups,
+          ["country"],
+        ).map((country) => {
+          const previousCountry = previousCountryMap.get(country.country);
+          const spendShare = currentTotals.spend ? country.spend / currentTotals.spend : 0;
+          const salesShare = currentTotals.purchase_value
+            ? country.purchase_value / currentTotals.purchase_value
+            : 0;
+          const previousSpendShare = previousTotals.spend && previousCountry
+            ? previousCountry.spend / previousTotals.spend
+            : 0;
+          const previousSalesShare = previousTotals.purchase_value && previousCountry
+            ? previousCountry.purchase_value / previousTotals.purchase_value
+            : 0;
+          return {
+            ...country,
+            region: region.region,
+            country_count: 1,
+            country_count_delta: deltaText(1, previousCountry ? 1 : 0),
+            spend_share: spendShare,
+            sales_share: salesShare,
+            spend_share_delta: deltaText(spendShare, previousSpendShare),
+            sales_share_delta: deltaText(salesShare, previousSalesShare),
+            _depth: 1,
+            _nodeType: "country",
+            _nodeValue: country.country,
+            _parentValue: region.region,
+            _expandable: false,
+            _expanded: false,
+          };
+        }));
+      }
+      return output;
+    }
+
     function selectModel(factRows, previousRows, filters = {}, region = "ALL") {
       const current = applyFilters(factRows, filters);
       const previous = applyFilters(previousRows, filters);
@@ -149,6 +215,6 @@
       };
     }
 
-    return { applyFilters, regionForCountry, selectModel };
+    return { applyFilters, regionForCountry, buildRegionHierarchy, selectModel };
   },
 );

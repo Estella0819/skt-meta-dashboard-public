@@ -1338,6 +1338,66 @@ h3 {
   max-height: calc(var(--dashboard-table-visible-rows) * var(--dashboard-table-row-height) + var(--dashboard-table-chrome-height));
 }
 
+.tree-node {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.tree-node.depth-1 {
+  padding-left: 20px;
+  font-weight: 600;
+}
+
+.tree-node.depth-2 {
+  padding-left: 40px;
+  color: var(--muted);
+}
+
+.tree-chevron {
+  width: 18px;
+  flex: 0 0 18px;
+}
+
+.tree-leaf {
+  display: inline-block;
+}
+
+.tree-row-depth-1 td {
+  background: #f8fafc;
+}
+
+.tree-row-depth-2 td {
+  background: #fbfcfe;
+}
+
+.drilldown-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.drilldown-breadcrumb button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
 #landingView .table-wrap {
   overflow-x: hidden;
   overflow-y: auto;
@@ -3141,6 +3201,11 @@ tfoot td {
 }
 
 @media (max-width: 639px) {
+  .context-filterbar {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .channel-detail-scroll th:nth-child(n),
   .channel-detail-scroll td:nth-child(n) {
     width: 100%;

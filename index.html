@@ -257,6 +257,7 @@
             <span id="countryRegionScope" class="country-scope-label"></span>
           </header>
           <div id="regionShareBars" class="compare-bars"></div>
+          <nav id="countryDrilldownBreadcrumb" class="drilldown-breadcrumb" aria-label="国家层级"></nav>
           <div class="table-wrap compact">
             <table id="regionTable"></table>
           </div>
@@ -273,11 +274,6 @@
       </section>
 
       <section class="view-shell hidden" id="creativeView" data-page-order="conclusion,kpis,trend,structure,detail">
-        <div id="creativeSegmentControl" class="segmented-control creative-segment-control" aria-label="素材分析维度">
-          <button type="button" class="active" data-segment="type" aria-pressed="true">素材类型</button>
-          <button type="button" data-segment="source" aria-pressed="false">视频来源</button>
-          <button type="button" data-segment="subtype" aria-pressed="false">视频细分</button>
-        </div>
         <div class="creative-segment-module" data-creative-segment-module data-module="trend">
           <article class="panel trend-panel" data-module="trend">
             <header>
@@ -296,6 +292,7 @@
             </header>
             <div id="creativeStructureDonut" class="donut-card single-donut"></div>
             <div id="creativeStructureShares" class="compare-bars"></div>
+            <nav id="creativeDrilldownBreadcrumb" class="drilldown-breadcrumb" aria-label="素材层级"></nav>
             <div class="table-wrap compact">
               <table id="creativeStructureTable"></table>
             </div>

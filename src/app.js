@@ -28,6 +28,9 @@ const state = {
   endDate: "",
   country: [],
   countryRegion: "ALL",
+  creativeExpandedType: "",
+  creativeExpandedSources: [],
+  expandedRegions: [],
   account: [],
   product: [],
   channelProduct: [],
@@ -482,12 +485,16 @@ function pageComparisonRows(source = data.fact) {
 
 function countryPageModel() {
   const ignoreCountry = state.countryRegion !== "ALL";
-  const current = rowsForWindow(data.fact, state.startDate, state.endDate, { ignoreCountry });
+  const current = rowsForWindow(data.fact, state.startDate, state.endDate, { ignoreCountry }).filter(isMetaAdRow);
   const period = comparisonWindow();
   const previous = period.start && period.end
-    ? rowsForWindow(data.fact, period.start, period.end, { ignoreCountry })
+    ? rowsForWindow(data.fact, period.start, period.end, { ignoreCountry }).filter(isMetaAdRow)
     : [];
-  return DashboardCountry.selectModel(current, previous, {}, state.countryRegion);
+  return {
+    ...DashboardCountry.selectModel(current, previous, {}, state.countryRegion),
+    hierarchyCurrentRows: current,
+    hierarchyPreviousRows: previous,
+  };
 }
 
 function creativePageModel(currentRows, previousRows) {
@@ -2261,6 +2268,113 @@ function preserveScroll(callback) {
   requestAnimationFrame(() => window.scrollTo(x, y));
 }
 
+function hierarchyLabel(row) {
+  const chevron = row._expandable
+    ? `<span class="tree-chevron" aria-hidden="true">${row._expanded ? "⌄" : "›"}</span>`
+    : '<span class="tree-chevron tree-leaf" aria-hidden="true"></span>';
+  return `<button type="button" class="tree-node depth-${row._depth}"
+    data-tree-node="${row._nodeType}"
+    data-tree-value="${escapeHtml(row._nodeValue)}"
+    data-tree-parent="${escapeHtml(row._parentValue || "")}"
+    aria-expanded="${row._expandable ? String(row._expanded) : "false"}">
+    ${chevron}<span>${escapeHtml(row._nodeValue || "未分类")}</span>
+  </button>`;
+}
+
+function toggleCreativeHierarchy(nodeType, nodeValue, parentValue = "") {
+  if (nodeType === "material_type" && nodeValue === "视频") {
+    state.creativeExpandedType = state.creativeExpandedType === "视频" ? "" : "视频";
+    if (!state.creativeExpandedType) state.creativeExpandedSources.splice(0);
+    return;
+  }
+  if (nodeType === "video_source") {
+    const index = state.creativeExpandedSources.indexOf(nodeValue);
+    if (index === -1) state.creativeExpandedSources.push(nodeValue);
+    else state.creativeExpandedSources.splice(index, 1);
+    return;
+  }
+  const materialType = nodeType === "material_type" ? nodeValue : "视频";
+  const hasVideoSubtype = nodeType === "video_subtype";
+  const videoSource = hasVideoSubtype ? parentValue : "";
+  const videoSubtype = hasVideoSubtype ? nodeValue : "";
+  const selected = state.materialType.length === 1
+    && state.materialType[0] === materialType
+    && state.videoSource.length === (hasVideoSubtype ? 1 : 0)
+    && (!hasVideoSubtype || state.videoSource[0] === videoSource)
+    && state.videoSubtype.length === (hasVideoSubtype ? 1 : 0)
+    && (!hasVideoSubtype || state.videoSubtype[0] === videoSubtype);
+  state.materialType.splice(0);
+  state.videoSource.splice(0);
+  state.videoSubtype.splice(0);
+  if (!selected) {
+    state.materialType.push(materialType);
+    if (hasVideoSubtype) {
+      state.videoSource.push(videoSource);
+      state.videoSubtype.push(videoSubtype);
+    }
+  }
+}
+
+function toggleCountryHierarchy(nodeType, nodeValue, parentValue = "") {
+  state.countryRegion = "ALL";
+  if (nodeType === "region") {
+    const closing = state.expandedRegions.includes(nodeValue);
+    const index = state.expandedRegions.indexOf(nodeValue);
+    if (closing) state.expandedRegions.splice(index, 1);
+    else state.expandedRegions.push(nodeValue);
+    if (closing && state.country.some((country) => countryRegion(country) === nodeValue)) {
+      state.country.splice(0);
+    }
+    return;
+  }
+  const selected = state.country.length === 1 && state.country[0] === nodeValue;
+  state.country.splice(0);
+  if (!selected) state.country.push(nodeValue);
+  if (!state.expandedRegions.includes(parentValue)) {
+    state.expandedRegions.push(parentValue);
+  }
+}
+
+function renderDrilldownBreadcrumb(containerId, items) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = items.map((item, index) => `${index ? '<span aria-hidden="true">›</span>' : ""}
+    <button type="button" data-drilldown-kind="${escapeHtml(item.kind)}" data-drilldown-level="${escapeHtml(item.level)}">${escapeHtml(item.label)}</button>`).join("");
+}
+
+function renderCreativeDrilldownBreadcrumb() {
+  const items = [];
+  if (state.materialType.length) items.push({ kind: "creative", level: "type", label: state.materialType[0] });
+  if (state.videoSource.length) items.push({ kind: "creative", level: "source", label: state.videoSource[0] || "未分类来源" });
+  if (state.videoSubtype.length) items.push({ kind: "creative", level: "subtype", label: state.videoSubtype[0] || "未分类细分" });
+  renderDrilldownBreadcrumb("creativeDrilldownBreadcrumb", items);
+}
+
+function renderCountryDrilldownBreadcrumb() {
+  const items = state.country.map((country) => ({ kind: "country", level: "country", label: country }));
+  renderDrilldownBreadcrumb("countryDrilldownBreadcrumb", items);
+}
+
+function clearCreativeDrilldown(level) {
+  if (level === "type") {
+    state.materialType = [];
+    state.videoSource = [];
+    state.videoSubtype = [];
+    state.creativeExpandedType = "";
+    state.creativeExpandedSources = [];
+  } else if (level === "source") {
+    state.videoSource = [];
+    state.videoSubtype = [];
+    state.creativeExpandedSources = [];
+  } else {
+    state.videoSubtype = [];
+  }
+}
+
+function clearCountryDrilldown(level) {
+  if (level === "country") state.country = [];
+}
+
 function renderContextFilters() {
   const accounts = accountOptionsForView();
   state.account = state.account.filter((value) => accounts.includes(value));
@@ -3256,13 +3370,21 @@ function renderCountryPage(countryModel) {
   renderLineChart("countryTrend", countryModel.trend, "purchase_value");
   renderCountryTrendConclusion(countryModel.countries);
 
-  const regionRows = countryModel.regions.map((row) => ({
+  const hierarchyRows = DashboardCountry.buildRegionHierarchy(
+    countryModel.hierarchyCurrentRows,
+    countryModel.hierarchyPreviousRows,
+    state.expandedRegions,
+  ).map((row) => ({
     ...row,
-    _rowClass: row.region === state.countryRegion ? "is-active-drilldown" : "",
+    _rowClass: [
+      `tree-row-depth-${row._depth}`,
+      row._nodeType === "country" && state.country.includes(row.country) ? "is-active-drilldown" : "",
+    ].filter(Boolean).join(" "),
   }));
-  renderShareCompareBars("regionShareBars", regionRows, "region", { limit: 4 });
-  renderTable("regionTable", regionRows, [
-    { key: "region", label: "地区", sticky: true, filterKey: "region", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+  renderCountryDrilldownBreadcrumb();
+  renderShareCompareBars("regionShareBars", countryModel.regions, "region", { limit: 4 });
+  renderTable("regionTable", hierarchyRows, [
+    { key: "region", label: "地区", sticky: true, filterKey: false, format: (_value, row) => hierarchyLabel(row) },
     { key: "country_count", label: "国家数", value: (row) => row, format: (row) => metricWithDelta(row, "country_count", number, "country_count_delta"), summaryValue: (row) => row.country_count, summaryFormat: number, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, num: true },
@@ -3272,7 +3394,10 @@ function renderCountryPage(countryModel) {
     metaAovColumn(),
     { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
     { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
-  ], 10, { previousSummaryRows: countryModel.previousRegions });
+  ], Number.POSITIVE_INFINITY, {
+    summaryRows: countryModel.regions,
+    previousSummaryRows: countryModel.previousRegions,
+  });
 
   renderTable("countryDetailTable", countryModel.countries, [
     { key: "country", label: "国家", sticky: true, filterKey: "country" },
@@ -3296,23 +3421,7 @@ function creativeSegmentMeta(model) {
   }[model.segment];
 }
 
-function renderCreativePage(creativeModel) {
-  const segmentOptions = [
-    { value: "type", label: "素材类型" },
-    { value: "source", label: "视频来源" },
-    { value: "subtype", label: "视频细分" },
-  ];
-  DashboardSegments.render(
-    document.getElementById("creativeSegmentControl"),
-    segmentOptions,
-    state.creativeSegment,
-    (segment) => {
-      if (segment === state.creativeSegment) return;
-      state.creativeSegment = segment;
-      preserveScroll(render);
-    },
-  );
-
+function renderCreativePage(creativeModel, currentRows, previousRows) {
   const meta = creativeSegmentMeta(creativeModel);
   document.getElementById("creativeTrendTitle").textContent = `${meta.label}趋势`;
   document.getElementById("creativeStructureTitle").textContent = `${meta.label}结构`;
@@ -3325,12 +3434,25 @@ function renderCreativePage(creativeModel) {
   });
   renderShareCompareBars("creativeStructureShares", creativeModel.structure, creativeModel.dimension, { limit: 8 });
 
+  const hierarchyRows = DashboardCreative.buildHierarchy(
+    currentRows,
+    previousRows,
+    state.creativeExpandedType,
+    state.creativeExpandedSources,
+  ).map((row) => ({ ...row, _rowClass: `tree-row-depth-${row._depth}` }));
+  renderCreativeDrilldownBreadcrumb();
   const segmentColumn = {
+    key: "material_type",
+    label: "素材类型",
+    sticky: true,
+    filterKey: false,
+    format: (_value, row) => hierarchyLabel(row),
+  };
+  const productMaterialSegmentColumn = {
     key: creativeModel.dimension,
     label: meta.label,
-    sticky: true,
     filterKey: creativeModel.dimension,
-    format: (value) => `<span class="tag material-tag">${escapeHtml(value || "未分类")}</span>`,
+    format: (value) => `<span class="tag">${escapeHtml(value)}</span>`,
   };
   const performanceColumns = [
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
@@ -3344,13 +3466,14 @@ function renderCreativePage(creativeModel) {
     { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
     { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
   ];
-  renderTable("creativeStructureTable", creativeModel.structure, [segmentColumn, ...performanceColumns], 10, {
+  renderTable("creativeStructureTable", hierarchyRows, [segmentColumn, ...performanceColumns], Number.POSITIVE_INFINITY, {
+    summaryRows: creativeModel.structure,
     previousSummaryRows: creativeModel.previousStructure,
   });
 
   renderTable("creativeProductMaterialTable", creativeModel.productMaterial, [
     { key: "standard_product_name", label: "标准产品", sticky: true, filterKey: "standard_product_name", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
-    { ...segmentColumn, sticky: false },
+    productMaterialSegmentColumn,
     ...performanceColumns,
   ], Number.POSITIVE_INFINITY, { previousSummaryRows: creativeModel.previousProductMaterial });
 
@@ -3432,7 +3555,7 @@ function render() {
   renderProductPage(productModel);
 
   renderCountryPage(countryModel);
-  renderCreativePage(creativeModel);
+  renderCreativePage(creativeModel, adRows, previousAdRows);
 
   const landingTypeRows = aggregate(landingRows, ["landing_type"]).sort((a, b) => b.spend - a.spend);
   renderDonutChart("landingTypeDonut", landingTypeRows, "spend", "落地页花费结构", { labelKey: "landing_type", limit: 8 });
@@ -3511,6 +3634,33 @@ function updateStickyOffsets() {
 function bindEvents() {
   document.body.dataset.eventsBound = "true";
   window.addEventListener("resize", updateStickyOffsets);
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-tree-node]");
+    if (!button) return;
+    event.preventDefault();
+    const nodeType = button.dataset.treeNode;
+    const nodeValue = button.dataset.treeValue;
+    const parentValue = button.dataset.treeParent;
+    if (["material_type", "video_source", "video_subtype"].includes(nodeType)) {
+      preserveScroll(() => toggleCreativeHierarchy(nodeType, nodeValue, parentValue));
+    } else {
+      preserveScroll(() => toggleCountryHierarchy(nodeType, nodeValue, parentValue));
+      syncMultiSelection("country");
+    }
+    render();
+  });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-drilldown-level]");
+    if (!button) return;
+    event.preventDefault();
+    if (button.dataset.drilldownKind === "creative") {
+      preserveScroll(() => clearCreativeDrilldown(button.dataset.drilldownLevel));
+    } else {
+      preserveScroll(() => clearCountryDrilldown(button.dataset.drilldownLevel));
+      syncMultiSelection("country");
+    }
+    render();
+  });
   document.addEventListener("click", (event) => {
     const source = event.target.nodeType === 1 ? event.target : event.target.parentElement;
     const target = source?.closest("[data-filter-key][data-filter-value]");
@@ -3668,6 +3818,9 @@ function bindEvents() {
   document.getElementById("resetFilters").addEventListener("click", () => {
     state.country = [];
     state.countryRegion = "ALL";
+    state.creativeExpandedType = "";
+    state.creativeExpandedSources = [];
+    state.expandedRegions = [];
     state.account = [];
     state.product = [];
     state.channelProduct = [];
