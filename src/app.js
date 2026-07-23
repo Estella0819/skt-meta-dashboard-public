@@ -2696,7 +2696,7 @@ function normalizedAttributionDailyRows() {
   const byDate = new Map((data.attribution_daily || []).map((row) => [row.date_start, { ...row }]));
   (data.attribution_channel || []).forEach((row) => {
     const current = byDate.get(row.date_start) || { date_start: row.date_start };
-    const prefix = row.channel === "Meta" ? "meta" : (row.channel === "Google Ads" ? "google" : "");
+    const prefix = row.channel === "Meta" ? "meta" : (row.channel === "Google Ads" ? "google" : (row.channel === "Snapchat" ? "snapchat" : ""));
     if (prefix) {
       if (current[`${prefix}_spend`] === null || current[`${prefix}_spend`] === undefined) current[`${prefix}_spend`] = row.spend;
       if (current[`${prefix}_purchases`] === null || current[`${prefix}_purchases`] === undefined) current[`${prefix}_purchases`] = row.platform_purchases;
@@ -2719,7 +2719,7 @@ function attributionChannelSelected(channel) {
 
 function attributionChannelOptions() {
   const available = new Set((data.attribution_channel || []).map((row) => row.channel));
-  return ["Meta", "Google Ads"].filter((channel) => available.has(channel));
+  return ["Meta", "Google Ads", "Snapchat"].filter((channel) => available.has(channel));
 }
 
 function channelOptionsForView() {
@@ -2767,6 +2767,11 @@ function attributionPeriodSummary(rows) {
       value: optionalSum("google_value"),
       purchases: optionalSum("google_purchases"),
     },
+    snapchat: {
+      spend: optionalSum("snapchat_spend"),
+      value: optionalSum("snapchat_value"),
+      purchases: optionalSum("snapchat_purchases"),
+    },
   };
 }
 
@@ -2780,9 +2785,16 @@ function renderAttributionKpis(rows) {
   const summary = attributionPeriodSummary(rows);
   const meta = selectedAttributionChannel("Meta", summary.meta);
   const google = selectedAttributionChannel("Google Ads", summary.google);
+  const snapchat = selectedAttributionChannel("Snapchat", summary.snapchat);
   const metaEfficiency = DashboardMetrics.calculateChannelEfficiency(meta);
   const googleEfficiency = DashboardMetrics.calculateChannelEfficiency(google);
-  const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(meta, google, summary.shopifyTotalSales);
+  const snapchatEfficiency = DashboardMetrics.calculateChannelEfficiency(snapchat);
+  const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(
+    meta,
+    google,
+    summary.shopifyTotalSales,
+    attributionChannelSelected("Snapchat") ? [snapchat] : [],
+  );
   const availability = (key) => `${rows.filter((row) => row[key] !== null && row[key] !== undefined).length}/${rows.length} 天`;
   const channelCard = (label, channel, efficiency, coverageKey) => `
     <article><span>${escapeHtml(label)}</span><strong>${money(channel.spend)} / ${money(channel.value)}</strong>
@@ -2791,7 +2803,8 @@ function renderAttributionKpis(rows) {
     <article><span>Shopify Total Sales</span><strong>${money(summary.shopifyTotalSales)}</strong><small>${number(summary.shopifyOrders)} 订单 · 站内财务基准 · ${availability("shopify_total_sales")}</small></article>
     ${channelCard("Meta", meta, metaEfficiency, "meta_spend")}
     ${channelCard("Google Ads", google, googleEfficiency, "google_spend")}
-    <article><span>双渠道总览</span><strong>${money(diagnostics.totalSpend)}</strong><small>合计花费 · 混合 MER ${ratio(diagnostics.blendedMer)}<br>总广告投入率 ${pct(diagnostics.adInvestmentRate)}</small></article>
+    ${channelCard("Snapchat", snapchat, snapchatEfficiency, "snapchat_spend")}
+    <article><span>广告渠道总览</span><strong>${money(diagnostics.totalSpend)}</strong><small>合计花费 · 混合 MER ${ratio(diagnostics.blendedMer)}<br>总广告投入率 ${pct(diagnostics.adInvestmentRate)}</small></article>
     <article><span>归因溢出</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong><small>平台 GMV ${money(diagnostics.totalValue)} vs Shopify Total Sales<br>仅表示平台认领溢出，不等同投放饱和</small></article>`;
 }
 
@@ -2806,12 +2819,15 @@ function renderAttributionTrend(rows) {
     if (state.attributionMetric === "platform_value") {
       add(row, "Meta", "meta_value");
       add(row, "Google Ads", "google_value");
+      add(row, "Snapchat", "snapchat_value");
     } else if (state.attributionMetric === "spend") {
       add(row, "Meta", "meta_spend");
       add(row, "Google Ads", "google_spend");
+      add(row, "Snapchat", "snapchat_spend");
     } else if (state.attributionMetric === "purchases") {
       add(row, "Meta", "meta_purchases");
       add(row, "Google Ads", "google_purchases");
+      add(row, "Snapchat", "snapchat_purchases");
     } else if (state.attributionMetric === "platform_roas") {
       const metaRoas = DashboardMetrics.calculateChannelEfficiency({
         spend: row.meta_spend,
@@ -2823,11 +2839,19 @@ function renderAttributionTrend(rows) {
         value: row.google_value,
         purchases: row.google_purchases,
       }).roas;
+      const snapchatRoas = DashboardMetrics.calculateChannelEfficiency({
+        spend: row.snapchat_spend,
+        value: row.snapchat_value,
+        purchases: row.snapchat_purchases,
+      }).roas;
       if (metaRoas !== null && attributionChannelSelected("Meta")) {
         series.push({ date_start: row.date_start, series: "Meta", value: metaRoas });
       }
       if (googleRoas !== null && attributionChannelSelected("Google Ads")) {
         series.push({ date_start: row.date_start, series: "Google Ads", value: googleRoas });
+      }
+      if (snapchatRoas !== null && attributionChannelSelected("Snapchat")) {
+        series.push({ date_start: row.date_start, series: "Snapchat", value: snapchatRoas });
       }
     } else {
       if (row.shopify_total_sales !== null && row.shopify_total_sales !== undefined) {
@@ -2842,11 +2866,13 @@ function attributionEfficiencyRows(summary) {
   const channels = [
     ["Meta", summary.meta],
     ["Google Ads", summary.google],
+    ["Snapchat", summary.snapchat],
   ].filter(([channel]) => attributionChannelSelected(channel));
   const diagnostics = DashboardMetrics.calculateAttributionDiagnostics(
     selectedAttributionChannel("Meta", summary.meta),
     selectedAttributionChannel("Google Ads", summary.google),
     summary.shopifyTotalSales,
+    attributionChannelSelected("Snapchat") ? [selectedAttributionChannel("Snapchat", summary.snapchat)] : [],
   );
   return channels.map(([channel, values]) => {
     const efficiency = DashboardMetrics.calculateChannelEfficiency(values);
@@ -2869,6 +2895,7 @@ function renderAttributionDiagnostics(summary) {
     selectedAttributionChannel("Meta", summary.meta),
     selectedAttributionChannel("Google Ads", summary.google),
     summary.shopifyTotalSales,
+    attributionChannelSelected("Snapchat") ? [selectedAttributionChannel("Snapchat", summary.snapchat)] : [],
   );
   document.getElementById("attributionDiagnostics").innerHTML = `
     <div><span>Shopify Total Sales</span><strong>${money(summary.shopifyTotalSales)}</strong></div>

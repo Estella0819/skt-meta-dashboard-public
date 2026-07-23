@@ -87,10 +87,11 @@ const DashboardMetrics = (() => {
     return available.length ? available.reduce((sum, value) => sum + value, 0) : null;
   };
 
-  const calculateAttributionDiagnostics = (meta, google, shopifyTotalSales) => {
-    const totalSpend = sumAvailable(meta.spend, google.spend);
-    const totalValue = sumAvailable(meta.value, google.value);
-    const totalPurchases = sumAvailable(meta.purchases, google.purchases);
+  const calculateAttributionDiagnostics = (meta, google, shopifyTotalSales, additionalChannels = []) => {
+    const channels = [meta, google, ...additionalChannels];
+    const totalSpend = sumAvailable(...channels.map((channel) => channel?.spend));
+    const totalValue = sumAvailable(...channels.map((channel) => channel?.value));
+    const totalPurchases = sumAvailable(...channels.map((channel) => channel?.purchases));
     const efficiency = calculateChannelEfficiency({
       spend: totalSpend,
       value: totalValue,
