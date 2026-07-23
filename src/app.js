@@ -131,13 +131,13 @@ const shopifyProductMap = new Map((data.shopify_product_mapping || []).map((row)
   row.product_name,
 ]));
 const productClassificationMap = new Map((data.product_classification || []).map((row) => [
-  row.current_product_name,
+  row.current_product_name.toLocaleLowerCase(),
   row,
 ]));
 
 function productClass(productName) {
   const current = String(productName || "Unknown").trim() || "Unknown";
-  const matched = productClassificationMap.get(current) || {};
+  const matched = productClassificationMap.get(current.toLocaleLowerCase()) || {};
   const standard = matched.standard_product_name || current;
   return {
     standard_product_name: standard,
