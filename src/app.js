@@ -3239,8 +3239,8 @@ function renderAttribution() {
     { key: "roas", label: "ROAS", format: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "aov", label: "AOV", format: money, num: true },
-  ], 2, {
-    insight: "对比两个平台的花费结构、平台归因结构与效率；平台 GMV 不与 Shopify Total Sales 相加为总收入。",
+  ], 3, {
+    insight: "对比各广告渠道的花费结构、平台归因结构与效率；平台 GMV 不与 Shopify Total Sales 相加为总收入。",
   });
   renderAttributionDiagnostics(summary);
   renderAttributionIssues();
