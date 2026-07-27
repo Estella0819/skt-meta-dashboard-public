@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>广告投放看板</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="./src/styles.css?v=20260722-product-source-split" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260727-desktop-redesign" />
   </head>
   <body class="cockpit-shell-marker">
     <header class="topbar">
@@ -59,7 +59,7 @@
           对比结束
           <input id="compareEndDateFilter" type="date" />
         </label>
-        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,product,country,creative,landing,attribution">
+        <div class="multi-select top-account-filter" data-filter="account" data-views="overview,product,country,creative,landing">
           <span class="filter-label">账户</span>
           <button type="button" class="multi-trigger" id="accountFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="accountFilterPanel"></div>
@@ -79,7 +79,7 @@
       </section>
 
       <section class="context-filterbar" aria-label="当前页面筛选">
-        <div class="multi-select" data-filter="country" data-views="product,country,landing">
+        <div class="multi-select" data-filter="country" data-views="overview,product,country,creative,landing">
           <span class="filter-label">国家</span>
           <button type="button" class="multi-trigger" id="countryFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="countryFilterPanel"></div>
@@ -94,7 +94,7 @@
           <button type="button" class="multi-trigger" id="channelProductFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="channelProductFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="productForm" data-views="product,creative">
+        <div class="multi-select" data-filter="productForm" data-views="overview,product,creative">
           <span class="filter-label">单品/套组</span>
           <button type="button" class="multi-trigger" id="productFormFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="productFormFilterPanel"></div>
@@ -199,32 +199,22 @@
           <button type="button" data-segment="form" aria-pressed="false">单品套组</button>
           <button type="button" data-segment="material" aria-pressed="false">素材组合</button>
         </div>
-        <article class="panel trend-panel" data-module="trend">
-          <header>
-            <h3 id="productTrendTitle">产品整体趋势</h3>
-            <button class="metric-info" type="button" title="Meta 广告归因收入日趋势" aria-label="Meta 广告归因收入日趋势">i</button>
-          </header>
-          <div class="trend-body">
-            <div id="productTrend" class="chart"></div>
-            <aside id="productTrendConclusion" class="chart-conclusion"></aside>
-          </div>
-        </article>
-        <section class="split-grid" data-module="structure">
-          <article class="panel">
+        <div class="analysis-chart-row">
+          <article class="panel trend-panel" data-module="trend">
             <header>
-              <h3 id="productStructureTitle">产品结构</h3>
-              <button class="metric-info" type="button" title="归因收入与广告花费占比" aria-label="归因收入与广告花费占比">i</button>
+              <h3 id="productTrendTitle">产品整体趋势</h3>
+              <button class="metric-info" type="button" title="Meta 广告归因收入日趋势" aria-label="Meta 广告归因收入日趋势">i</button>
             </header>
-            <div id="productSegmentStructure" class="compare-bars"></div>
+            <div id="productTrend" class="chart interactive-chart-host"></div>
           </article>
-          <article class="panel">
+          <article class="panel compact-structure-panel" data-module="structure">
             <header>
-              <h3>产品 x 国家</h3>
-              <button class="metric-info" type="button" title="颜色按 ROAS，数值为归因收入" aria-label="颜色按 ROAS，数值为归因收入">i</button>
+              <h3 id="productStructureTitle">产品 GMV 结构</h3>
+              <button class="metric-info" type="button" title="Meta 广告归因 GMV 按产品汇总" aria-label="产品 GMV 结构口径">i</button>
             </header>
-            <div id="productCountryHeatmap" class="heatmap"></div>
+            <div id="productGmvDonut" class="interactive-chart-host"></div>
           </article>
-        </section>
+        </div>
         <article class="panel" data-module="detail">
           <header>
             <h3 id="productDetailTitle">产品表现明细</h3>
@@ -238,16 +228,22 @@
       </section>
 
       <section class="view-shell hidden country-page" id="countryView" data-page-order="conclusion,kpis,trend,structure,detail">
-        <article class="panel country-trend-panel" data-module="trend">
-          <header>
-            <h3>每日归因收入趋势</h3>
-            <span id="countryTrendScope" class="country-scope-label"></span>
-          </header>
-          <div class="trend-body">
-            <div id="countryTrend" class="chart small"></div>
-            <aside id="countryTrendConclusion" class="chart-conclusion"></aside>
-          </div>
-        </article>
+        <div class="analysis-chart-row">
+          <article class="panel country-trend-panel" data-module="trend">
+            <header>
+              <h3>每日归因收入趋势</h3>
+              <span id="countryTrendScope" class="country-scope-label"></span>
+            </header>
+            <div id="countryTrend" class="chart small interactive-chart-host"></div>
+          </article>
+          <article class="panel compact-structure-panel" data-module="structure">
+            <header>
+              <h3>地区 GMV 结构</h3>
+              <button class="metric-info" type="button" title="中东 SA/AE；美国 US；澳英加为其余市场" aria-label="地区定义">i</button>
+            </header>
+            <div id="regionGmvDonut" class="interactive-chart-host"></div>
+          </article>
+        </div>
         <article class="panel country-region-panel" data-module="structure">
           <header>
             <div>
@@ -256,7 +252,6 @@
             </div>
             <span id="countryRegionScope" class="country-scope-label"></span>
           </header>
-          <div id="regionShareBars" class="compare-bars"></div>
           <nav id="countryDrilldownBreadcrumb" class="drilldown-breadcrumb" aria-label="国家层级"></nav>
           <div class="table-wrap compact">
             <table id="regionTable"></table>
@@ -275,23 +270,27 @@
 
       <section class="view-shell hidden" id="creativeView" data-page-order="conclusion,kpis,trend,structure,detail">
         <div class="creative-segment-module" data-creative-segment-module data-module="trend">
-          <article class="panel trend-panel" data-module="trend">
+          <div class="analysis-chart-row">
+            <article class="panel trend-panel" data-module="trend">
+              <header>
+                <h3 id="creativeTrendTitle">素材类型 GMV趋势</h3>
+                <button class="metric-info" type="button" title="Meta 广告数据，跟随当前素材维度和页面筛选" aria-label="素材趋势口径">i</button>
+              </header>
+              <div id="creativeTrend" class="chart interactive-chart-host"></div>
+            </article>
+            <article class="panel compact-structure-panel" data-module="structure">
+              <header>
+                <h3 id="creativeStructureTitle">素材类型 GMV结构</h3>
+                <button class="metric-info" type="button" title="按确认字段汇总，不改变素材分类" aria-label="素材结构口径">i</button>
+              </header>
+              <div id="creativeStructureDonut" class="interactive-chart-host"></div>
+            </article>
+          </div>
+          <article class="panel creative-hierarchy-panel" data-module="structure">
             <header>
-              <h3 id="creativeTrendTitle">素材类型趋势</h3>
-              <button class="metric-info" type="button" title="Meta 广告数据，跟随当前素材维度和页面筛选" aria-label="素材趋势口径">i</button>
+              <h3>素材层级表现</h3>
+              <button class="metric-info" type="button" title="点击视频来源继续查看视频细分" aria-label="素材层级口径">i</button>
             </header>
-            <div class="trend-body">
-              <div id="creativeTrend" class="chart"></div>
-              <aside id="creativeTrendConclusion" class="chart-conclusion"></aside>
-            </div>
-          </article>
-          <article class="panel" data-module="structure">
-            <header>
-              <h3 id="creativeStructureTitle">素材类型结构</h3>
-              <button class="metric-info" type="button" title="按确认字段汇总，不改变素材分类" aria-label="素材结构口径">i</button>
-            </header>
-            <div id="creativeStructureDonut" class="donut-card single-donut"></div>
-            <div id="creativeStructureShares" class="compare-bars"></div>
             <nav id="creativeDrilldownBreadcrumb" class="drilldown-breadcrumb" aria-label="素材层级"></nav>
             <div class="table-wrap compact">
               <table id="creativeStructureTable"></table>
@@ -310,7 +309,7 @@
         <article class="panel" data-module="detail">
           <header>
             <h3>素材明细</h3>
-            <button class="metric-info" type="button" title="Meta 素材明细，含 Ad name，按花费排序" aria-label="素材明细口径">i</button>
+            <button class="metric-info" type="button" title="Meta 原始素材编号明细；Unknown、- 与空编号显示为空白，按花费排序" aria-label="素材编号明细口径">i</button>
           </header>
           <div class="table-wrap">
             <table id="creativeDetailTable"></table>
@@ -454,7 +453,7 @@
         </article>
       </section>
 
-      <section class="view-shell hidden" id="channelsView" data-page-order="conclusion,kpis,trend,structure,detail">
+      <section class="view-shell hidden" id="channelsView" data-page-order="channel-summary,channel-trend,all-channel-products,product-channel-mix,channel-product-detail">
         <div class="channel-scope-bar">
           <div id="channelMarketControl" class="segmented-control" aria-label="市场范围">
             <button type="button" class="active" data-channel-market="US">美国</button>
@@ -462,43 +461,45 @@
           </div>
           <div id="channelCountryFilters" class="channel-country-filters" hidden></div>
         </div>
-        <article class="panel trend-panel onsite-trend-panel" data-module="trend">
+        <article class="panel" data-module="channel-summary" data-channel-panel="channel-summary">
           <header>
-            <h3 id="channelTrendTitle">多渠道每日销售趋势</h3>
-            <button class="metric-info" type="button" title="Shopify 为 Net Sales；Amazon/TikTok 为 Source USD GMV" aria-label="渠道汇总口径">i</button>
+            <h3>渠道汇总</h3>
+            <button class="metric-info" type="button" title="按销量排序；Shopify 为 Net Sales，Amazon/TikTok 为 Source USD GMV" aria-label="渠道汇总口径">i</button>
+          </header>
+          <div class="table-wrap compact">
+            <table id="usChannelSummaryTable"></table>
+          </div>
+        </article>
+        <article class="panel trend-panel onsite-trend-panel" data-module="channel-trend" data-channel-panel="channel-trend">
+          <header>
+            <h3 id="channelTrendTitle">多渠道每日销量趋势</h3>
+            <button class="metric-info" type="button" title="趋势以销量为主，悬浮提示同时显示销售额" aria-label="渠道销量趋势口径">i</button>
           </header>
           <div class="trend-body onsite-trend-body">
             <div id="usChannelTrend" class="chart onsite-chart"></div>
             <aside id="usChannelTrendConclusion" class="chart-conclusion onsite-conclusion"></aside>
           </div>
         </article>
-        <article class="panel" data-module="structure">
+        <article class="panel" data-module="all-channel-products" data-channel-panel="all-channel-products">
           <header>
-            <h3>渠道产品结构对比</h3>
-            <button class="metric-info" type="button" title="按销量展示产品在 Shopify / Amazon / TikTok 的渠道结构；Shopify 为 Net Sales，Amazon/TikTok 为 Source USD GMV" aria-label="渠道产品结构口径">i</button>
+            <h3>全渠道产品表现</h3>
+            <button class="metric-info" type="button" title="按 SKU 和产品名称合并，按总销量排序，保留单渠道产品" aria-label="全渠道产品表现口径">i</button>
+          </header>
+          <div class="table-wrap channel-all-products-scroll">
+            <table id="allChannelProductsTable"></table>
+          </div>
+        </article>
+        <article class="panel" data-module="product-channel-mix" data-channel-panel="product-channel-mix">
+          <header>
+            <h3>产品渠道销量结构</h3>
+            <button class="metric-info" type="button" title="按总销量展示每个 SKU 产品的 Shopify、Amazon、TikTok 销量结构" aria-label="产品渠道销量结构口径">i</button>
           </header>
           <div id="usChannelProductMix" class="stacked-bars"></div>
         </article>
-        <article class="panel" data-module="structure">
-          <header>
-            <h3>渠道产品销量排行</h3>
-            <button class="metric-info" type="button" title="跟随渠道筛选，按销量展示产品表现" aria-label="渠道产品排行口径">i</button>
-          </header>
-          <div id="usChannelProductBars" class="bars"></div>
-        </article>
-        <article class="panel" data-module="detail">
-          <header>
-            <h3>渠道汇总</h3>
-            <button class="metric-info" type="button" title="Shopify 为 Net Sales；Amazon/TikTok 为 Source USD GMV" aria-label="渠道汇总口径">i</button>
-          </header>
-          <div class="table-wrap compact">
-            <table id="usChannelSummaryTable"></table>
-          </div>
-        </article>
-        <article class="panel" data-module="detail">
+        <article class="panel" data-module="channel-product-detail" data-channel-panel="channel-product-detail">
           <header>
             <h3>渠道 x 产品销量表现</h3>
-            <button class="metric-info" type="button" title="按销量排序；各渠道销售额均为美元口径" aria-label="渠道产品口径">i</button>
+            <button class="metric-info" type="button" title="按销量排序；各渠道销售额均为美元口径，含对比周期变化" aria-label="渠道产品口径">i</button>
           </header>
           <div class="table-wrap">
             <table id="usChannelProductTable"></table>
@@ -507,19 +508,23 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-data.js?v=20260720-creative-detail"></script>
+    <script src="./data/dashboard-core-data.js?v=20260727-partitions"></script>
+    <script src="./src/data-loader.js?v=20260727-desktop-redesign"></script>
     <script src="./src/dashboard-metrics.js?v=20260714-meta-aov"></script>
-    <script src="./src/components/filter-controls.js?v=20260722-product-source-split"></script>
-    <script src="./src/components/segmented-control.js?v=20260722-product-source-split"></script>
-    <script src="./src/components/data-table.js?v=20260722-product-source-split"></script>
+    <script src="./src/components/interactive-charts.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/components/filter-controls.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/components/segmented-control.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/components/data-table.js?v=20260727-desktop-redesign"></script>
     <script src="./src/components/page-shell.js?v=20260722-product-source-split"></script>
     <script src="./src/dashboard-ui.js?v=20260720-cockpit"></script>
-    <script src="./src/dashboard-state.js?v=20260722-product-source-split"></script>
-    <script src="./src/page-config.js?v=20260722-product-source-split"></script>
-    <script src="./src/pages/country-page.js?v=20260722-product-source-split"></script>
-    <script src="./src/pages/creative-page.js?v=20260722-product-source-split"></script>
-    <script src="./src/pages/product-page.js?v=20260722-product-source-split"></script>
+    <script src="./src/dashboard-state.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/page-config.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/render-dispatcher.js?v=20260723-render-dispatcher"></script>
+    <script src="./src/pages/country-page.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/pages/creative-page.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/pages/product-page.js?v=20260727-desktop-redesign"></script>
+    <script src="./src/pages/channel-page.js?v=20260727-desktop-redesign"></script>
     <script src="./src/product-filter-options.js?v=20260722-product-source-split"></script>
-    <script src="./src/app.js?v=20260722-product-source-split"></script>
+    <script src="./src/app.js?v=20260727-desktop-redesign"></script>
   </body>
 </html>

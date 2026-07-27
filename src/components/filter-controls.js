@@ -77,7 +77,7 @@
     function commit(key, panel) {
       updateSelectAll(panel);
       onChange(key, selectedValues(panel));
-      preserveScroll(() => render(key));
+      preserveScroll((renderRequest) => render(key, renderRequest));
     }
 
     root.addEventListener("input", (event) => {

@@ -8,7 +8,7 @@
     overview: {
       title: "总览",
       subtitle: "投放规模、效率和趋势",
-      filters: ["account", "country", "product", "productForm", "channel"],
+      filters: ["account", "country", "product", "productForm"],
       segments: [],
       modules,
     },
@@ -22,7 +22,7 @@
     country: {
       title: "国家",
       subtitle: "国家层面的产品承接和素材贡献",
-      filters: ["account", "country", "product"],
+      filters: ["account", "country", "product", "countryRegion"],
       segments: [],
       drillDown: { key: "region", default: "ALL" },
       modules,
@@ -30,7 +30,7 @@
     creative: {
       title: "素材",
       subtitle: "高花费、高回报和风险素材分层",
-      filters: ["account", "country", "product", "operator", "materialType", "videoSource", "videoSubtype", "materialName", "adName"],
+      filters: ["account", "country", "product", "productForm", "operator", "materialType", "videoSource", "videoSubtype", "materialName", "adName"],
       segments: ["type", "source", "subtype"],
       modules,
     },
@@ -51,9 +51,9 @@
     channels: {
       title: "渠道情况",
       subtitle: "Shopify、Amazon 和 TikTok 销售趋势",
-      filters: ["channel", "channelProduct"],
+      filters: ["channel", "channelProduct", "channelMarket", "channelCountries"],
       segments: [],
-      modules,
+      modules: ["channel-summary", "channel-trend", "all-channel-products", "product-channel-mix", "channel-product-detail"],
     },
   };
 
@@ -61,5 +61,9 @@
     return pages[pageId] ? structuredClone(pages[pageId]) : undefined;
   }
 
-  return { get };
+  function filterKeys() {
+    return [...new Set(Object.values(pages).flatMap((page) => page.filters))];
+  }
+
+  return { get, filterKeys };
 });

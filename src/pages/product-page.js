@@ -87,6 +87,9 @@
         summary: DashboardMetricsApi.summarizeRows(current),
         previousSummary: DashboardMetricsApi.summarizeRows(previous),
         trend: DashboardMetricsApi.groupRows(current, ["date_start"]).sort((left, right) => String(left.date_start).localeCompare(String(right.date_start))),
+        trendByProduct: DashboardMetricsApi.groupRows(current, ["date_start", "standard_product_name"])
+          .sort((left, right) => String(left.date_start).localeCompare(String(right.date_start))
+            || String(left.standard_product_name).localeCompare(String(right.standard_product_name), "zh-CN")),
         structure: compareRows(current, previous, [dimension]),
         previousStructure: withShares(DashboardMetricsApi.groupRows(previous, [dimension])),
         detail: compareRows(current, previous, detailDimensions),

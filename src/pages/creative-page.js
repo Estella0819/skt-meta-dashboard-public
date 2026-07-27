@@ -60,6 +60,11 @@
       return dimensions.map((dimension) => row[dimension] ?? "Unknown").join("||");
     }
 
+    function normalizeMaterialCode(value) {
+      const code = String(value ?? "").trim();
+      return code === "Unknown" || code === "-" ? "" : code;
+    }
+
     function withShares(rows) {
       const totalSpend = rows.reduce((sum, row) => sum + row.spend, 0);
       const totalSales = rows.reduce((sum, row) => sum + row.purchase_value, 0);
@@ -159,10 +164,15 @@
       return {
         segment,
         dimension,
+        currentRows: current,
+        previousRows: previous,
         summary: DashboardMetricsApi.summarizeRows(current),
         previousSummary: DashboardMetricsApi.summarizeRows(previous),
-        trend: DashboardMetricsApi.groupRows(current, ["date_start"])
-          .sort((left, right) => String(left.date_start).localeCompare(String(right.date_start))),
+        trend: DashboardMetricsApi.groupRows(current, ["date_start", dimension])
+          .sort((left, right) => (
+            String(left.date_start).localeCompare(String(right.date_start))
+            || String(left[dimension]).localeCompare(String(right[dimension]), "zh-CN")
+          )),
         structure: aggregateWithComparison(current, previous, [dimension]),
         previousStructure: withShares(DashboardMetricsApi.groupRows(previous, [dimension])),
         productMaterial: aggregateWithComparison(current, previous, productDimensions),
@@ -173,6 +183,6 @@
       };
     }
 
-    return { applyFilters, buildHierarchy, segmentDimension, selectModel };
+    return { applyFilters, buildHierarchy, normalizeMaterialCode, segmentDimension, selectModel };
   },
 );
