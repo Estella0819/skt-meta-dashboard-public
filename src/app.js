@@ -274,6 +274,7 @@ function inferredMaterialCode(row) {
   const videoSource = String(row?.video_source || "").trim();
   const normalized = adName.replace(/\s+-\s+Copy(?:\s+\d+)?$/i, "").trim();
   const posterMatch = normalized.match(/(?:帖子|post)[_-]+(.+)$/i);
+  if (/aditya/i.test(normalized)) return "合创-Aditya";
   if (posterMatch?.[1]) return `合创-${posterMatch[1].trim()}`;
   if (/官号贴|官方贴/.test(normalized)) return `官号贴-${product || "未归类"}`;
   if (/tt[ _-]*(?:home|ads)/i.test(normalized)) return `TT mirror-${product || "未归类"}`;
