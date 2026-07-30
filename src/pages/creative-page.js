@@ -12,6 +12,11 @@
       subtype: "video_subtype",
     };
     const videoMaterialType = "视频";
+    const productMaterialTypes = [
+      { value: "图文", prefix: "image" },
+      { value: "视频", prefix: "video" },
+      { value: "合创", prefix: "cocreate" },
+    ];
     const filterFields = {
       account: ["account_name"],
       account_name: ["account_name"],
@@ -63,6 +68,111 @@
     function normalizeMaterialCode(value) {
       const code = String(value ?? "").trim();
       return code === "Unknown" || code === "-" ? "" : code;
+    }
+
+    function nullableRatio(numerator, denominator, hasRows) {
+      return hasRows && denominator ? numerator / denominator : null;
+    }
+
+    function nullableDelta(now, before) {
+      return now === null || now === undefined ? null : deltaText(now, before ?? 0);
+    }
+
+    function materialMetricSet(current, previous, currentTotalGmv, previousTotalGmv) {
+      const hasCurrentRows = Boolean(current);
+      const hasPreviousRows = Boolean(previous);
+      const currentSpend = current ? Number(current.spend || 0) : 0;
+      const currentGmv = current ? Number(current.purchase_value || 0) : 0;
+      const currentPurchases = current ? Number(current.purchase_times || 0) : 0;
+      const previousSpend = previous ? Number(previous.spend || 0) : 0;
+      const previousGmv = previous ? Number(previous.purchase_value || 0) : 0;
+      const previousPurchases = previous ? Number(previous.purchase_times || 0) : 0;
+      const values = {
+        gmv_share: nullableRatio(currentGmv, currentTotalGmv, hasCurrentRows),
+        roas: nullableRatio(currentGmv, currentSpend, hasCurrentRows),
+        aov: nullableRatio(currentGmv, currentPurchases, hasCurrentRows),
+      };
+      const previousValues = {
+        gmv_share: nullableRatio(previousGmv, previousTotalGmv, hasPreviousRows),
+        roas: nullableRatio(previousGmv, previousSpend, hasPreviousRows),
+        aov: nullableRatio(previousGmv, previousPurchases, hasPreviousRows),
+      };
+      return Object.fromEntries(Object.keys(values).flatMap((key) => [
+        [key, values[key]],
+        [`${key}_delta`, nullableDelta(values[key], previousValues[key])],
+      ]));
+    }
+
+    function buildProductMaterialMatrix(currentRows, previousRows) {
+      const currentProducts = DashboardMetricsApi.groupRows(currentRows, ["standard_product_name"]);
+      const previousProducts = DashboardMetricsApi.groupRows(previousRows, ["standard_product_name"]);
+      const currentMaterials = DashboardMetricsApi.groupRows(
+        currentRows,
+        ["standard_product_name", "material_type"],
+      );
+      const previousMaterials = DashboardMetricsApi.groupRows(
+        previousRows,
+        ["standard_product_name", "material_type"],
+      );
+      const previousProductMap = new Map(
+        previousProducts.map((row) => [rowKey(row, ["standard_product_name"]), row]),
+      );
+      const currentMaterialMap = new Map(
+        currentMaterials.map((row) => [rowKey(row, ["standard_product_name", "material_type"]), row]),
+      );
+      const previousMaterialMap = new Map(
+        previousMaterials.map((row) => [rowKey(row, ["standard_product_name", "material_type"]), row]),
+      );
+      const rows = currentProducts.map((product) => {
+        const productKey = rowKey(product, ["standard_product_name"]);
+        const previousProduct = previousProductMap.get(productKey);
+        const row = {
+          standard_product_name: product.standard_product_name,
+          purchase_value: product.purchase_value,
+          sales_delta: deltaText(product.purchase_value, previousProduct?.purchase_value || 0),
+        };
+        for (const { value, prefix } of productMaterialTypes) {
+          const materialKey = rowKey({ standard_product_name: product.standard_product_name, material_type: value }, [
+            "standard_product_name",
+            "material_type",
+          ]);
+          Object.assign(row, Object.fromEntries(
+            Object.entries(materialMetricSet(
+              currentMaterialMap.get(materialKey),
+              previousMaterialMap.get(materialKey),
+              product.purchase_value,
+              previousProduct?.purchase_value || 0,
+            )).map(([key, metric]) => [`${prefix}_${key}`, metric]),
+          ));
+        }
+        return row;
+      }).sort((left, right) => right.purchase_value - left.purchase_value);
+
+      const currentSummary = DashboardMetricsApi.summarizeRows(currentRows);
+      const previousSummary = DashboardMetricsApi.summarizeRows(previousRows);
+      const currentMaterialMapByType = new Map(
+        DashboardMetricsApi.groupRows(currentRows, ["material_type"])
+          .map((row) => [row.material_type, row]),
+      );
+      const previousMaterialMapByType = new Map(
+        DashboardMetricsApi.groupRows(previousRows, ["material_type"])
+          .map((row) => [row.material_type, row]),
+      );
+      const summary = {
+        purchase_value: currentSummary.purchase_value,
+        sales_delta: deltaText(currentSummary.purchase_value, previousSummary.purchase_value),
+      };
+      for (const { value, prefix } of productMaterialTypes) {
+        Object.assign(summary, Object.fromEntries(
+          Object.entries(materialMetricSet(
+            currentMaterialMapByType.get(value),
+            previousMaterialMapByType.get(value),
+            currentSummary.purchase_value,
+            previousSummary.purchase_value,
+          )).map(([key, metric]) => [`${prefix}_${key}`, metric]),
+        ));
+      }
+      return { rows, summary };
     }
 
     function withShares(rows) {
@@ -157,8 +267,11 @@
       const scopePopulation = (rows) => segment === "type"
         ? rows
         : rows.filter((row) => row.material_type === videoMaterialType);
-      const current = scopePopulation(applyFilters(adRows, filters));
-      const previous = scopePopulation(applyFilters(previousRows, filters));
+      const filteredCurrent = applyFilters(adRows, filters);
+      const filteredPrevious = applyFilters(previousRows, filters);
+      const matrix = buildProductMaterialMatrix(filteredCurrent, filteredPrevious);
+      const current = scopePopulation(filteredCurrent);
+      const previous = scopePopulation(filteredPrevious);
       const productDimensions = ["standard_product_name", dimension];
 
       return {
@@ -177,12 +290,21 @@
         previousStructure: withShares(DashboardMetricsApi.groupRows(previous, [dimension])),
         productMaterial: aggregateWithComparison(current, previous, productDimensions),
         previousProductMaterial: withShares(DashboardMetricsApi.groupRows(previous, productDimensions)),
+        productMaterialMatrix: matrix.rows,
+        productMaterialSummary: matrix.summary,
         detail: current.map((row) => ({ ...row }))
           .sort((left, right) => Number(right.spend || 0) - Number(left.spend || 0)),
         previousDetail: previous.map((row) => ({ ...row })),
       };
     }
 
-    return { applyFilters, buildHierarchy, normalizeMaterialCode, segmentDimension, selectModel };
+    return {
+      applyFilters,
+      buildHierarchy,
+      buildProductMaterialMatrix,
+      normalizeMaterialCode,
+      segmentDimension,
+      selectModel,
+    };
   },
 );

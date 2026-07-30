@@ -21,14 +21,20 @@
       .filter((value) => value && value !== "全部");
   }
 
-  function serializeUrl(state, page, locationLike = {}) {
+  function activeFilterKeys(page, allFilterKeys) {
+    return Array.isArray(allFilterKeys) && allFilterKeys.length
+      ? allFilterKeys
+      : (page?.filters || []);
+  }
+
+  function serializeUrl(state, page, locationLike = {}, allFilterKeys) {
     const params = new URLSearchParams();
     params.set("view", state.view || "overview");
     globalUrlFields.forEach(([stateKey, param, defaultValue]) => {
       const value = state[stateKey] ?? defaultValue;
       if (value !== "") params.set(param, value);
     });
-    (page?.filters || []).forEach((key) => {
+    activeFilterKeys(page, allFilterKeys).forEach((key) => {
       const value = state[key];
       if (Array.isArray(value)) {
         cleanValues(value).forEach((item) => params.append(key, item));
@@ -44,7 +50,7 @@
     return `${pathname}?${params.toString()}${hash}`;
   }
 
-  function parseUrl(search, getPage, fallbackView = "overview") {
+  function parseUrl(search, getPage, fallbackView = "overview", allFilterKeys) {
     const params = new URLSearchParams(search || "");
     const requestedView = params.get("view");
     const requestedPage = requestedView && getPage(requestedView);
@@ -59,7 +65,7 @@
     }
     if (!requestedPage && requestedView) return parsed;
     const page = requestedPage || getPage(view);
-    (page?.filters || []).forEach((key) => {
+    activeFilterKeys(page, allFilterKeys).forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(scalarFilterDefaults, key)) {
         parsed[key] = params.get(key) || scalarFilterDefaults[key];
         return;

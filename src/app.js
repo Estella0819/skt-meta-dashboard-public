@@ -67,7 +67,7 @@ const state = {
 };
 
 const filterOptions = {};
-const pageFilterState = DashboardState.create();
+const allFilterKeys = DashboardPages.filterKeys();
 const pageFilterDefaults = {
   countryRegion: "ALL",
   channelMarket: "US",
@@ -79,50 +79,32 @@ function emptyPageFilterValue(key) {
     : [];
 }
 
-function pageFilterSnapshot(view, source = state) {
-  const page = DashboardPages.get(view);
-  if (!page) return {};
-  return Object.fromEntries(page.filters.map((key) => [key, structuredClone(source[key])]));
-}
-
-function emptyPageFilterSnapshot(view) {
-  const page = DashboardPages.get(view);
-  if (!page) return {};
-  return Object.fromEntries(page.filters.map((key) => [key, structuredClone(emptyPageFilterValue(key))]));
-}
-
-function capturePageFilters(view) {
-  pageFilterState.capture(view, pageFilterSnapshot(view));
-}
-
-function restorePageFilters(view) {
-  DashboardPages.filterKeys().forEach((key) => {
-    state[key] = structuredClone(emptyPageFilterValue(key));
-  });
-  pageFilterState.restore(view, state);
-}
-
-function initializePageFilters() {
-  document.querySelectorAll(".tab[data-view]").forEach((tab) => {
-    pageFilterState.capture(tab.dataset.view, emptyPageFilterSnapshot(tab.dataset.view));
-  });
-  capturePageFilters(state.view);
+function dashboardUrl(stateValue, locationLike) {
+  return DashboardState.serializeUrl(
+    stateValue,
+    DashboardPages.get(stateValue.view),
+    locationLike,
+    allFilterKeys,
+  );
 }
 
 function restoreStateFromUrl(search = location.search) {
-  const parsed = DashboardState.parseUrl(search, DashboardPages.get);
-  DashboardPages.filterKeys().forEach((key) => {
+  const parsed = DashboardState.parseUrl(
+    search,
+    DashboardPages.get,
+    "overview",
+    allFilterKeys,
+  );
+  allFilterKeys.forEach((key) => {
     state[key] = structuredClone(emptyPageFilterValue(key));
   });
   Object.assign(state, parsed);
-  pageFilterState.capture(state.view, pageFilterSnapshot(state.view));
 }
 
 function syncUrl(historyMode = "replace") {
   const method = historyMode === "push" ? "pushState" : "replaceState";
-  const nextUrl = DashboardState.serializeUrl(
+  const nextUrl = dashboardUrl(
     state,
-    DashboardPages.get(state.view),
     { pathname: location.pathname, hash: location.hash },
   );
   history[method]({}, "", nextUrl);
@@ -335,33 +317,43 @@ function filterControlId(key) {
   }[key];
 }
 
-function filterHref(key, value) {
+function filterHref(key, value, relatedFilters = []) {
   const nextState = structuredClone(state);
-  nextState.country = key === "region"
-    ? countriesForRegion(value)
-    : (key === "country" ? [value] : state.country);
-  nextState.countryRegion = key === "region"
-    ? (state.countryRegion === value ? "ALL" : value)
-    : (key === "country" ? "ALL" : state.countryRegion);
-  nextState.account = key === "account_name" ? [value] : state.account;
-  const productClick = key === "product_name" || key === "standard_product_name";
-  nextState.product = productClick && state.view !== "channels" ? [value] : state.product;
-  nextState.channelProduct = productClick && state.view === "channels" ? [value] : state.channelProduct;
-  nextState.productForm = key === "product_form" ? [value] : state.productForm;
-  nextState.channel = key === "channel" ? [value] : state.channel;
-  nextState.operator = key === "operator" ? [value] : state.operator;
-  nextState.landingType = key === "landing_type" ? [value] : state.landingType;
-  nextState.materialType = key === "material_type" ? [value] : state.materialType;
-  nextState.videoSource = key === "video_source" ? [value] : state.videoSource;
-  nextState.videoSubtype = key === "video_subtype" ? [value] : state.videoSubtype;
-  nextState.materialName = key === "material_name" ? [value] : state.materialName;
-  nextState.adName = key === "ad_name" ? [value] : state.adName;
-  nextState.googleAdTypes = key === "googleAdTypes" ? [value] : state.googleAdTypes;
-  nextState.googleProducts = key === "googleProducts" ? [value] : state.googleProducts;
-  nextState.googleCountries = key === "googleCountries" ? [value] : state.googleCountries;
-  return DashboardState.serializeUrl(
+  const applyHrefFilter = (filterKey, filterValue) => {
+    if (filterValue === undefined || filterValue === null || filterValue === "") return;
+    if (filterKey === "region") {
+      nextState.country = countriesForRegion(filterValue);
+      nextState.countryRegion = state.countryRegion === filterValue ? "ALL" : filterValue;
+      return;
+    }
+    if (filterKey === "country") {
+      nextState.country = [filterValue];
+      nextState.countryRegion = "ALL";
+      return;
+    }
+    if (filterKey === "account_name") nextState.account = [filterValue];
+    if (filterKey === "product_name" || filterKey === "standard_product_name") {
+      nextState[state.view === "channels" ? "channelProduct" : "product"] = [filterValue];
+    }
+    if (filterKey === "product_form") nextState.productForm = [filterValue];
+    if (filterKey === "channel") nextState.channel = [filterValue];
+    if (filterKey === "operator") nextState.operator = [filterValue];
+    if (filterKey === "landing_type") nextState.landingType = [filterValue];
+    if (filterKey === "material_type") nextState.materialType = [filterValue];
+    if (filterKey === "video_source") nextState.videoSource = [filterValue];
+    if (filterKey === "video_subtype") nextState.videoSubtype = [filterValue];
+    if (filterKey === "material_name") nextState.materialName = [filterValue];
+    if (filterKey === "ad_name") nextState.adName = [filterValue];
+    if (filterKey === "googleAdTypes") nextState.googleAdTypes = [filterValue];
+    if (filterKey === "googleProducts") nextState.googleProducts = [filterValue];
+    if (filterKey === "googleCountries") nextState.googleCountries = [filterValue];
+  };
+  applyHrefFilter(key, value);
+  relatedFilters.forEach(({ key: relatedKey, value: relatedValue }) => {
+    applyHrefFilter(relatedKey, relatedValue);
+  });
+  return dashboardUrl(
     nextState,
-    DashboardPages.get(state.view),
     { pathname: location.pathname, hash: location.hash },
   );
 }
@@ -496,17 +488,18 @@ function deriveMetrics(row) {
 }
 
 function passesCommonFilters(row, options = {}) {
-  if (!options.ignoreCountry && state.country.length && !state.country.includes(row.country)) return false;
-  if (state.account.length && !state.account.includes(row.account_name)) return false;
-  if (state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
-  if (state.productForm.length && !state.productForm.includes(row.product_form)) return false;
-  if (state.operator.length && !state.operator.includes(row.operator)) return false;
-  if (state.landingType.length && !state.landingType.includes(row.landing_type || landingPageType(row))) return false;
-  if (state.materialType.length && !state.materialType.includes(row.material_type)) return false;
-  if (state.videoSource.length && !state.videoSource.includes(row.video_source)) return false;
-  if (state.videoSubtype.length && !state.videoSubtype.includes(row.video_subtype)) return false;
-  if (state.materialName.length && (row.material_code || row.material_name || row.ad_name) && !state.materialName.includes(row.material_name || materialName(row))) return false;
-  if (state.adName.length && row.ad_name && !state.adName.includes(row.ad_name)) return false;
+  const pageFilters = DashboardPages.get(state.view)?.filters || [];
+  if (pageFilters.includes("country") && !options.ignoreCountry && state.country.length && !state.country.includes(row.country)) return false;
+  if (pageFilters.includes("account") && state.account.length && !state.account.includes(row.account_name)) return false;
+  if (pageFilters.includes("product") && state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
+  if (pageFilters.includes("productForm") && state.productForm.length && !state.productForm.includes(row.product_form)) return false;
+  if (pageFilters.includes("operator") && state.operator.length && !state.operator.includes(row.operator)) return false;
+  if (pageFilters.includes("landingType") && state.landingType.length && !state.landingType.includes(row.landing_type || landingPageType(row))) return false;
+  if (pageFilters.includes("materialType") && state.materialType.length && !state.materialType.includes(row.material_type)) return false;
+  if (pageFilters.includes("videoSource") && state.videoSource.length && !state.videoSource.includes(row.video_source)) return false;
+  if (pageFilters.includes("videoSubtype") && state.videoSubtype.length && !state.videoSubtype.includes(row.video_subtype)) return false;
+  if (pageFilters.includes("materialName") && state.materialName.length && (row.material_code || row.material_name || row.ad_name) && !state.materialName.includes(row.material_name || materialName(row))) return false;
+  if (pageFilters.includes("adName") && state.adName.length && row.ad_name && !state.adName.includes(row.ad_name)) return false;
   return true;
 }
 
@@ -945,17 +938,14 @@ function initFilters() {
   }
   if (pageFilters.has("account")) {
     const accounts = accountOptionsForView();
-    state.account = state.account.filter((value) => accounts.includes(value));
     setMultiOptions("account", accounts, state.account);
   }
   if (pageFilters.has("product")) {
     const products = advertisingProductOptions();
-    state.product = state.product.filter((value) => products.includes(value));
     setMultiOptions("product", products, state.product);
   }
   if (pageFilters.has("channelProduct")) {
     const channelProducts = channelProductOptions();
-    state.channelProduct = state.channelProduct.filter((value) => channelProducts.includes(value));
     setMultiOptions("channelProduct", channelProducts, state.channelProduct);
   }
   if (pageFilters.has("productForm")) {
@@ -964,7 +954,6 @@ function initFilters() {
   }
   if (pageFilters.has("channel")) {
     const channels = channelOptionsForView();
-    state.channel = state.channel.filter((value) => channels.includes(value));
     setMultiOptions("channel", channels, state.channel);
   }
   if (pageFilters.has("operator")) {
@@ -2049,6 +2038,9 @@ function efficiencyLabel(row) {
 function renderTable(id, rows, columns, limit = 80, options = {}) {
   const summaryRows = options.summaryRows || rows;
   const table = document.getElementById(id);
+  if (table) {
+    table.dataset.tableFilterOwned = typeof options.onDimensionClick === "function" ? "true" : "false";
+  }
   const result = DashboardTable.render(table, rows, columns, {
     ...options,
     limit,
@@ -2325,9 +2317,9 @@ function tableSummary(rows) {
 }
 
 function renderSummaryCell(col, summary, index, previousSummary = null) {
-  const dataLabel = escapeHtml(col.label);
+  const dataLabel = escapeHtml(col.mobileLabel || col.label);
   if (index === 0) return `<td data-label="${dataLabel}" class="summary-label ${col.sticky ? "sticky-col" : ""}">合计</td>`;
-  if (col.summary === false || col.filterKey || col.name) return `<td data-label="${dataLabel}"></td>`;
+  if (col.summary === false || (col.filterKey && col.summary !== true) || col.name) return `<td data-label="${dataLabel}"></td>`;
   const summaryKey = col.summaryKey || col.key;
   const raw = col.summaryValue ? col.summaryValue(summary) : summary[summaryKey];
   if (raw === undefined || raw === null || raw === "") return `<td data-label="${dataLabel}"></td>`;
@@ -2375,6 +2367,33 @@ function applyContentFilter(key, value) {
   state[stateKey] = [value];
   syncMultiSelection(stateKey);
   return render;
+}
+
+function applyFilterEntries(filters) {
+  const mapping = {
+    country: "country",
+    product_name: state.view === "channels" ? "channelProduct" : "product",
+    standard_product_name: state.view === "channels" ? "channelProduct" : "product",
+    product_form: "productForm",
+    channel: "channel",
+    operator: "operator",
+    account_name: "account",
+    landing_type: "landingType",
+    material_type: "materialType",
+    video_source: "videoSource",
+    video_subtype: "videoSubtype",
+    material_name: "materialName",
+    ad_name: "adName",
+    googleAdTypes: "googleAdTypes",
+    googleProducts: "googleProducts",
+    googleCountries: "googleCountries",
+  };
+  (filters || []).forEach(({ key, value }) => {
+    const stateKey = mapping[key];
+    if (!stateKey || value === undefined || value === null || value === "") return;
+    if (stateKey === "country") state.countryRegion = "ALL";
+    state[stateKey] = [value];
+  });
 }
 
 function bindContentFilters() {}
@@ -3873,7 +3892,7 @@ function renderCreativePage(creativeModel) {
   const meta = creativeSegmentMeta(creativeModel);
   document.getElementById("creativeTrendTitle").textContent = `${meta.label} GMV趋势`;
   document.getElementById("creativeStructureTitle").textContent = `${meta.label} GMV结构`;
-  document.getElementById("creativeProductMaterialTitle").textContent = `产品 x ${meta.label}`;
+  document.getElementById("creativeProductMaterialTitle").textContent = "产品素材结构";
   const trendModel = DashboardCharts.buildSeriesModel(creativeModel.trend, {
     categoryKey: creativeModel.dimension,
     limit: 8,
@@ -3898,31 +3917,68 @@ function renderCreativePage(creativeModel) {
     { ariaLabel: `按${meta.label}的 Meta GMV 结构` },
   );
 
-  const productMaterialSegmentColumn = {
-    key: creativeModel.dimension,
-    label: meta.label,
-    filterKey: creativeModel.dimension,
-    format: (value) => `<span class="tag">${escapeHtml(value)}</span>`,
-  };
-  const performanceColumns = [
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "sales_share", label: "销售占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share, summaryFormat: pct, summaryDelta: false, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
-    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-  ];
   renderCreativeHierarchy(creativeModel);
 
-  renderTable("creativeProductMaterialTable", creativeModel.productMaterial, [
+  const materialGroups = [
+    { label: "图文", prefix: "image" },
+    { label: "视频", prefix: "video" },
+    { label: "合创", prefix: "cocreate" },
+  ];
+  const formatMaterialMetric = (row, key, formatter, deltaKey = `${key}_delta`) => {
+    if (row[key] === null || row[key] === undefined) return "-";
+    const delta = row[deltaKey];
+    return delta
+      ? metricStack(formatter(row[key]), deltaBadge(delta))
+      : formatter(row[key]);
+  };
+  const metricColumn = (key, metricLabel, copyLabel, formatter, _filterKey, label) => ({
+    key,
+    label: metricLabel,
+    mobileLabel: `${label} ${metricLabel}`,
+    copyLabel,
+    value: (row) => row,
+    format: (row) => formatMaterialMetric(row, key, formatter),
+    summaryValue: (row) => row,
+    summaryFormat: (row) => formatMaterialMetric(row, key, formatter),
+    summary: true,
+    num: true,
+    filterKey: "material_type",
+    filterValue: () => label,
+    filterContext: (row) => [{ key: "standard_product_name", value: row.standard_product_name }],
+  });
+  const materialMatrixColumns = [
     { key: "standard_product_name", label: "标准产品", sticky: true, filterKey: "standard_product_name", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
-    productMaterialSegmentColumn,
-    ...performanceColumns,
-  ], Number.POSITIVE_INFINITY, { previousSummaryRows: creativeModel.previousProductMaterial });
+    {
+      key: "purchase_value",
+      label: "产品总GMV",
+      copyLabel: "产品总GMV",
+      value: (row) => row,
+      format: (row) => formatMaterialMetric(row, "purchase_value", money, "sales_delta"),
+      summaryValue: (row) => row,
+      summaryFormat: (row) => formatMaterialMetric(row, "purchase_value", money, "sales_delta"),
+      num: true,
+    },
+    ...materialGroups.flatMap(({ label, prefix }) => [
+      metricColumn(`${prefix}_gmv_share`, "GMV占比", `${label} GMV占比`, pct, "material_type", label),
+      metricColumn(`${prefix}_roas`, "ROAS", `${label} ROAS`, ratio, "material_type", label),
+      metricColumn(`${prefix}_aov`, "客单", `${label} 客单`, money, "material_type", label),
+    ]),
+  ];
+  renderTable("creativeProductMaterialTable", creativeModel.productMaterialMatrix, materialMatrixColumns, Number.POSITIVE_INFINITY, {
+    columnGroups: [
+      { label: "", span: 2 },
+      { label: "图文", span: 3 },
+      { label: "视频", span: 3 },
+      { label: "合创", span: 3 },
+    ],
+    summaryData: creativeModel.productMaterialSummary,
+    onDimensionClick({ filters }) {
+      applyFilterEntries(filters);
+      syncMultiSelection("product");
+      syncMultiSelection("materialType");
+      requestRender(render, { historyMode: "replace" });
+    },
+  });
 
   const detailDimensions = [
     "material_code",
@@ -4256,7 +4312,6 @@ function bindEvents() {
   document.body.dataset.eventsBound = "true";
   window.addEventListener("resize", updateStickyOffsets);
   window.addEventListener("popstate", () => {
-    capturePageFilters(state.view);
     restoreStateFromUrl();
     syncPendingTimeFromState();
     initFilters();
@@ -4308,6 +4363,9 @@ function bindEvents() {
     const source = event.target.nodeType === 1 ? event.target : event.target.parentElement;
     const target = source?.closest("[data-filter-key][data-filter-value]");
     if (!target) return;
+    const tableOwnsFilter = target.dataset.tableFilterOwned === "true"
+      && target.closest("table")?.dataset.tableFilterOwned === "true";
+    if (tableOwnsFilter) return;
     event.preventDefault();
     const renderer = applyContentFilter(target.dataset.filterKey, target.dataset.filterValue);
     if (renderer) requestRender(renderer, { historyMode: "replace" });
@@ -4316,9 +4374,7 @@ function bindEvents() {
     tab.addEventListener("click", () => {
       const nextView = tab.dataset.view;
       if (nextView === state.view) return;
-      capturePageFilters(state.view);
       state.view = nextView;
-      restorePageFilters(nextView);
       initFilters();
       requestRender(render, { historyMode: "push", preserve: false });
     });
@@ -4459,30 +4515,13 @@ function bindEvents() {
   });
   document.getElementById("resetFilters").addEventListener("click", () => {
     resetTrendSelections();
-    state.country = [];
-    state.countryRegion = "ALL";
+    allFilterKeys.forEach((key) => {
+      state[key] = structuredClone(emptyPageFilterValue(key));
+    });
     state.creativeExpandedType = "";
     state.creativeExpandedSources = [];
     state.creativeSegment = "type";
     state.expandedRegions = [];
-    state.account = [];
-    state.product = [];
-    state.channelProduct = [];
-    state.productForm = [];
-    state.channel = [];
-    state.operator = [];
-    state.landingType = [];
-    state.materialType = [];
-    state.videoSource = [];
-    state.videoSubtype = [];
-    state.materialName = [];
-    state.adName = [];
-    state.channelMarket = "US";
-    state.channelCountries = [];
-    state.googleAdTypes = [];
-    state.googleProducts = [];
-    state.googleCountries = [];
-    initializePageFilters();
     initFilters();
     requestRender(render, { historyMode: "replace" });
   });
@@ -4493,7 +4532,6 @@ function boot() {
   restoreStateFromUrl();
   document.getElementById("dateRange").textContent = `${data.summary.min_date} 至 ${data.summary.max_date}`;
   document.getElementById("generatedAt").textContent = `更新于 ${data.generated_at}`;
-  initializePageFilters();
   initFilters();
   syncPendingTimeFromState();
   initFilters();

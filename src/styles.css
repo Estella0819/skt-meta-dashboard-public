@@ -3768,6 +3768,160 @@ table td [class*="-meta"] {
   flex: 0 0 auto;
 }
 
+/* creative-product-material-matrix */
+#creativeProductMaterialTable {
+  --creative-matrix-group-row-height: 28px;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.table-wrap:has(> #creativeProductMaterialTable) {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+#creativeProductMaterialTable th,
+#creativeProductMaterialTable td {
+  padding-inline: 4px;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#creativeProductMaterialTable thead tr:not(.table-group-row) th:first-child,
+#creativeProductMaterialTable td:first-child {
+  width: 16%;
+}
+
+#creativeProductMaterialTable thead tr:not(.table-group-row) th:nth-child(n + 2),
+#creativeProductMaterialTable td:nth-child(n + 2) {
+  width: 8.4%;
+}
+
+#creativeProductMaterialTable .table-group-row th {
+  top: 0;
+  height: var(--creative-matrix-group-row-height);
+  box-sizing: border-box;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+}
+
+#creativeProductMaterialTable .table-group-row th:first-child {
+  width: 24.4%;
+}
+
+#creativeProductMaterialTable .table-group-row th:nth-child(n + 2) {
+  width: 25.2%;
+}
+
+#creativeProductMaterialTable thead tr:not(.table-group-row) th {
+  top: var(--creative-matrix-group-row-height);
+}
+
+#creativeProductMaterialTable .metric-stack {
+  gap: 1px;
+  white-space: normal;
+}
+
+#creativeProductMaterialTable .metric-stack strong,
+#creativeProductMaterialTable .metric-stack small,
+#creativeProductMaterialTable .cell-filter-button {
+  font-size: inherit;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  #creativeProductMaterialTable {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  #creativeProductMaterialTable thead {
+    display: none;
+  }
+
+  #creativeProductMaterialTable tbody,
+  #creativeProductMaterialTable tfoot {
+    display: block;
+  }
+
+  #creativeProductMaterialTable tbody > tr,
+  #creativeProductMaterialTable tfoot > tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    margin: 8px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: white;
+    overflow: hidden;
+  }
+
+  #creativeProductMaterialTable td,
+  #creativeProductMaterialTable td.sticky-col {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    width: auto;
+    min-width: 0;
+    min-height: 46px;
+    border-radius: 0;
+    padding: 6px;
+    font-size: 12px;
+    line-height: 1.25;
+    text-align: left;
+    overflow-wrap: normal;
+  }
+
+  #creativeProductMaterialTable tbody td:first-child,
+  #creativeProductMaterialTable tfoot td:first-child,
+  #creativeProductMaterialTable tbody td:nth-child(2),
+  #creativeProductMaterialTable tfoot td:nth-child(2) {
+    width: auto;
+    grid-column: 1 / -1;
+    min-height: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  #creativeProductMaterialTable tbody td:nth-child(n + 3),
+  #creativeProductMaterialTable tfoot td:nth-child(n + 3) {
+    width: auto;
+  }
+
+  #creativeProductMaterialTable tbody td:first-child,
+  #creativeProductMaterialTable tfoot td:first-child {
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  #creativeProductMaterialTable td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  #creativeProductMaterialTable .cell-filter-button,
+  #creativeProductMaterialTable .metric-stack {
+    width: 100%;
+    justify-items: start;
+    text-align: left;
+  }
+
+  #creativeProductMaterialTable .metric-stack strong,
+  #creativeProductMaterialTable .metric-stack small,
+  #creativeProductMaterialTable .cell-filter-button {
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+}
+
 /* compact-trend-and-structure-layout */
 .analysis-chart-row {
   display: grid;

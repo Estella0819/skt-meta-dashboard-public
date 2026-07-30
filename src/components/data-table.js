@@ -109,7 +109,9 @@
     const sorted = options.sort?.key
       ? sortRows(sourceRows, options.sort.key, options.sort.direction, options.sort.accessor)
       : [...sourceRows];
-    const header = tableColumns.map((column) => plainText(column.label)).join("\t");
+    const header = tableColumns
+      .map((column) => plainText(column.copyLabel || column.label))
+      .join("\t");
     const body = sorted.map((row) => tableColumns.map((column) => {
       const raw = column.value ? column.value(row) : row[column.key];
       return copyValue(column, raw, row);
@@ -187,6 +189,10 @@
       binding.onDimensionClick({
         key: dimensionTarget.dataset.filterKey,
         value: dimensionTarget.dataset.filterValue,
+        filters: [
+          { key: dimensionTarget.dataset.filterKey, value: dimensionTarget.dataset.filterValue },
+          ...(binding.dimensionFilters.get(`${rowIndex}:${columnKey}`) || []),
+        ],
         row: binding.rows[rowIndex],
         column: binding.columns.find((column) => column.key === columnKey),
         target: dimensionTarget,
@@ -207,6 +213,7 @@
       renderSummaryCell,
       windowStart,
       windowSize,
+      dimensionFilters,
     } = binding;
     const wrapper = element.closest?.(".table-wrap");
     const scrollTop = wrapper?.scrollTop;
@@ -215,6 +222,13 @@
       ? activeElement.dataset?.tableSortKey
       : "";
     const visibleRows = allRows.slice(windowStart, windowStart + windowSize);
+    dimensionFilters.clear();
+
+    const groupHead = Array.isArray(options.columnGroups)
+      ? `<tr class="table-group-row">${options.columnGroups.map((group) => (
+        `<th colspan="${group.span}" class="${escape(group.className || "")}">${escape(group.label)}</th>`
+      )).join("")}</tr>`
+      : "";
 
     const head = columns.map((column) => {
       const sortable = Boolean(sort) && column.sortable !== false;
@@ -235,31 +249,37 @@
         ${columns.map((column) => {
           const raw = column.value ? column.value(row) : row?.[column.key];
           const value = formatValue(column, raw, row, escape);
-          const label = escape(column.label);
+          const label = escape(column.mobileLabel || column.label);
           const dimensionKey = options.getDimensionKey
             ? options.getDimensionKey(column)
             : (column.filterKey === false ? "" : (column.filterKey || ""));
-          const href = dimensionKey && raw && options.dimensionHref
-            ? options.dimensionHref(dimensionKey, raw)
+          const dimensionValue = column.filterValue ? column.filterValue(row, raw) : raw;
+          const relatedFilters = column.filterContext ? column.filterContext(row, raw) : [];
+          const hasDimension = dimensionKey && dimensionValue !== undefined && dimensionValue !== null && dimensionValue !== "";
+          const href = hasDimension && options.dimensionHref
+            ? options.dimensionHref(dimensionKey, dimensionValue, relatedFilters)
             : "";
-          const dimensionAttributes = dimensionKey && raw
-            ? ` data-filter-key="${escape(dimensionKey)}" data-filter-value="${escape(raw)}" data-row-index="${windowStart + rowIndex}" data-column-key="${escape(column.key)}"`
+          const dimensionAttributes = hasDimension
+            ? ` data-filter-key="${escape(dimensionKey)}" data-filter-value="${escape(dimensionValue)}" data-row-index="${windowStart + rowIndex}" data-column-key="${escape(column.key)}" data-table-filter-owned="true"`
             : "";
-          const content = dimensionKey && raw
+          if (hasDimension) {
+            dimensionFilters.set(`${windowStart + rowIndex}:${column.key}`, relatedFilters);
+          }
+          const content = hasDimension
             ? `<a class="cell-filter-button"${dimensionAttributes} href="${escape(href || "#")}">${value}</a>`
             : value;
           const cellClass = classNames(
             column.num && "num",
             column.name && "name-cell",
             column.sticky && "sticky-col",
-            dimensionKey && "click-cell",
+            hasDimension && "click-cell",
           );
           return `<td data-label="${label}" class="${cellClass}">${content}</td>`;
         }).join("")}
       </tr>
     `).join("");
 
-    element.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>${summary}`;
+    element.innerHTML = `<thead>${groupHead}<tr>${head}</tr></thead><tbody>${body}</tbody>${summary}`;
     if (focusedSortKey) {
       const focusedButton = [...element.querySelectorAll("[data-table-sort-key]")]
         .find((button) => button.dataset.tableSortKey === focusedSortKey);
@@ -429,6 +449,7 @@
       renderSummaryCell,
       sort,
       wrapper,
+      dimensionFilters: new Map(),
       viewportHeight: 0,
       copyText: toTsv(sortedRows, tableColumns, {
         summaryLine: summaryCells.map((cell) => plainText(cell)).join("\t"),
