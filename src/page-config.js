@@ -8,21 +8,21 @@
     overview: {
       title: "总览",
       subtitle: "投放规模、效率和趋势",
-      filters: ["account", "country", "product", "productForm"],
+      filters: ["account", "country", "product", "productForm", "operator"],
       segments: [],
       modules,
     },
     product: {
       title: "产品",
       subtitle: "产品名称、单品套组和产品表现",
-      filters: ["account", "country", "product", "productForm"],
+      filters: ["account", "country", "product", "productForm", "operator"],
       segments: ["overall", "form", "material"],
       modules,
     },
     country: {
       title: "国家",
       subtitle: "国家层面的产品承接和素材贡献",
-      filters: ["account", "country", "product", "countryRegion"],
+      filters: ["account", "country", "product", "countryRegion", "operator"],
       segments: [],
       drillDown: { key: "region", default: "ALL" },
       modules,
@@ -37,7 +37,7 @@
     landing: {
       title: "落地页",
       subtitle: "活动专题页、详情页和集合页承接表现",
-      filters: ["account", "country", "product", "landingType"],
+      filters: ["account", "country", "product", "landingType", "operator"],
       segments: [],
       modules,
     },
