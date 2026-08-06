@@ -1267,7 +1267,7 @@ function renderKpis(rows, previousRows, context = {}) {
       { label: structureLabel, value: topStructure?.[productModel?.dimension] || "-", note: topStructure ? `ROAS ${ratio(topStructure.roas)}` : "当前周期", format: String, hint: "当前分析维度" },
       { label: "归因收入", value: productSummary.purchase_value, previous: previousProductSummary.purchase_value, format: money, hint: `${number(productSummary.purchase_times)} 转化` },
       { label: "ROAS", value: productSummary.roas, previous: previousProductSummary.roas, format: ratio, hint: "归因收入 / 花费" },
-      { label: "CVR", value: productSummary.cvr, previous: previousProductSummary.cvr, format: pct, hint: "转化 / 点击" },
+      { label: "CVR", value: productSummary.cvr, previous: previousProductSummary.cvr, format: pct, hint: "转化 / 站外点击" },
     ]);
     return;
   }
@@ -1288,7 +1288,7 @@ function renderKpis(rows, previousRows, context = {}) {
       { label: "归因收入", value: creativeSummary.purchase_value, previous: previousCreativeSummary.purchase_value, format: money, hint: `${number(creativeSummary.purchase_times)} 转化` },
       { label: `主要${segmentLabel}`, value: topSegment?.[creativeModel?.dimension] || "-", note: topSegment ? `花费占比 ${pct(topSegment.spend_share)}` : "当前周期", format: String, hint: "按花费占比" },
       { label: "风险素材", value: riskRows.length, previous: undefined, format: number, hint: "花费>$100 且 ROAS<1.3", inverse: true },
-      { label: "CVR", value: creativeSummary.cvr, previous: previousCreativeSummary.cvr, format: pct, hint: "转化 / 点击" },
+      { label: "CVR", value: creativeSummary.cvr, previous: previousCreativeSummary.cvr, format: pct, hint: "转化 / 站外点击" },
     ]);
     return;
   }
@@ -1320,7 +1320,7 @@ function renderKpis(rows, previousRows, context = {}) {
       { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: "落地页消耗" },
       { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
       { label: "ROAS", value: summary.roas, previous: previous.roas, format: ratio, hint: "归因收入 / 花费" },
-      { label: "CVR", value: summary.cvr, previous: previous.cvr, format: pct, hint: "转化 / 点击" },
+      { label: "CVR", value: summary.cvr, previous: previous.cvr, format: pct, hint: "转化 / 站外点击" },
     ]);
     return;
   }
@@ -2265,6 +2265,8 @@ function tableSummary(rows) {
     "impressions",
     "reach",
     "clicks",
+    "inline_link_clicks",
+    "outbound_clicks",
     "purchase_times",
     "purchase_value",
     "meta_purchase_value",
@@ -2299,8 +2301,8 @@ function tableSummary(rows) {
   summary.google_cpa = summary.conversions ? summary.spend / summary.conversions : null;
   summary.google_ctr = summary.impressions ? summary.clicks / summary.impressions : null;
   summary.google_cvr = summary.clicks ? summary.conversions / summary.clicks : null;
-  summary.ctr = summary.impressions ? summary.clicks / summary.impressions : 0;
-  summary.cvr = summary.clicks ? summary.purchase_times / summary.clicks : 0;
+  summary.ctr = summary.impressions ? summary.inline_link_clicks / summary.impressions : 0;
+  summary.cvr = summary.outbound_clicks ? summary.purchase_times / summary.outbound_clicks : 0;
   summary.cpm = summary.impressions ? (summary.spend / summary.impressions) * 1000 : 0;
   summary.aov = DashboardMetrics.calculateAovFromRows(rows)
     || DashboardMetrics.calculateAovFromRows(rows, "net_sales", "orders");

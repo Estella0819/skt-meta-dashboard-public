@@ -1,5 +1,10 @@
 const DashboardMetrics = (() => {
   const numeric = (value) => Number(value || 0);
+  const metaClickMetric = (row, key) => (
+    Object.prototype.hasOwnProperty.call(row, key)
+      ? numeric(row[key])
+      : numeric(row.clicks)
+  );
 
   const calculateAov = (revenue, conversions) => {
     const count = numeric(conversions);
@@ -23,13 +28,15 @@ const DashboardMetrics = (() => {
       purchase_times: sum.purchase_times + Number(row.purchase_times || 0),
       impressions: sum.impressions + Number(row.impressions || 0),
       clicks: sum.clicks + Number(row.clicks || 0),
-    }), { spend: 0, purchase_value: 0, purchase_times: 0, impressions: 0, clicks: 0 });
+      inline_link_clicks: sum.inline_link_clicks + metaClickMetric(row, "inline_link_clicks"),
+      outbound_clicks: sum.outbound_clicks + metaClickMetric(row, "outbound_clicks"),
+    }), { spend: 0, purchase_value: 0, purchase_times: 0, impressions: 0, clicks: 0, inline_link_clicks: 0, outbound_clicks: 0 });
     return {
       ...totals,
       roas: totals.spend ? totals.purchase_value / totals.spend : 0,
       cpa: totals.purchase_times ? totals.spend / totals.purchase_times : 0,
-      ctr: totals.impressions ? totals.clicks / totals.impressions : 0,
-      cvr: totals.clicks ? totals.purchase_times / totals.clicks : 0,
+      ctr: totals.impressions ? totals.inline_link_clicks / totals.impressions : 0,
+      cvr: totals.outbound_clicks ? totals.purchase_times / totals.outbound_clicks : 0,
       aov: totals.purchase_times ? totals.purchase_value / totals.purchase_times : 0,
     };
   };
@@ -45,6 +52,8 @@ const DashboardMetrics = (() => {
           impressions: 0,
           reach: 0,
           clicks: 0,
+          inline_link_clicks: 0,
+          outbound_clicks: 0,
           purchase_times: 0,
           purchase_value: 0,
         });
@@ -54,6 +63,8 @@ const DashboardMetrics = (() => {
       group.impressions += Number(row.impressions || 0);
       group.reach += Number(row.reach || 0);
       group.clicks += Number(row.clicks || 0);
+      group.inline_link_clicks += metaClickMetric(row, "inline_link_clicks");
+      group.outbound_clicks += metaClickMetric(row, "outbound_clicks");
       group.purchase_times += Number(row.purchase_times || 0);
       group.purchase_value += Number(row.purchase_value || 0);
     }
