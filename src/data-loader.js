@@ -4,12 +4,14 @@
     product: "core",
     country: "core",
     creative: "creative",
+    lifecycle: "lifecycle",
     landing: "creative",
     channels: "channels",
     attribution: "attribution",
   };
   const partitionFiles = {
     creative: "dashboard-creative-data.js",
+    lifecycle: "dashboard-lifecycle-data.js",
     channels: "dashboard-channel-data.js",
     attribution: "dashboard-attribution-data.js",
   };
@@ -19,7 +21,12 @@
 
   function partitionUrl(partition) {
     const filename = partitionFiles[partition];
-    if (loaderScriptUrl) return new URL(`../data/${filename}`, loaderScriptUrl).href;
+    if (loaderScriptUrl) {
+      const assetUrl = new URL(`../data/${filename}`, loaderScriptUrl);
+      const releaseKey = new URL(loaderScriptUrl).searchParams.get("v");
+      if (releaseKey) assetUrl.searchParams.set("v", releaseKey);
+      return assetUrl.href;
+    }
     return `./data/${filename}`;
   }
 
@@ -42,7 +49,25 @@
     dataState(view)?.remove();
   }
 
+  function partitionForView(view) {
+    return viewPartitions[view] || "core";
+  }
+
+  function loadedPayload(partition) {
+    return partition === "lifecycle"
+      ? root.DASHBOARD_LIFECYCLE_DATA
+      : root.META_DASHBOARD_DATA;
+  }
+
   function mergePartition(partition) {
+    if (partition === "lifecycle") {
+      const payload = root.DASHBOARD_LIFECYCLE_DATA;
+      if (!payload) {
+        throw new Error("数据分包 lifecycle 已加载，但未注册有效数据");
+      }
+      loadedPartitions.add(partition);
+      return payload;
+    }
     const payload = root.META_DASHBOARD_PARTITIONS?.[partition];
     if (!payload) {
       throw new Error(`数据分包 ${partition} 已加载，但未注册有效数据`);
@@ -67,7 +92,7 @@
 
   function loadPartition(partition) {
     if (loadedPartitions.has(partition)) {
-      return Promise.resolve(root.META_DASHBOARD_DATA);
+      return Promise.resolve(loadedPayload(partition));
     }
     if (partitionPromises.has(partition)) return partitionPromises.get(partition);
 
@@ -99,7 +124,7 @@
   }
 
   function ensure(view) {
-    const partition = viewPartitions[view] || "core";
+    const partition = partitionForView(view);
     if (partition === "core") return Promise.resolve(root.META_DASHBOARD_DATA);
     showState(view, "loading", "正在加载当前页面数据...");
     return loadPartition(partition)
@@ -115,5 +140,6 @@
 
   root.DashboardDataLoader = {
     ensure,
+    partitionForView,
   };
 })(typeof window !== "undefined" ? window : globalThis);

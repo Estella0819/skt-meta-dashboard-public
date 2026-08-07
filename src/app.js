@@ -52,6 +52,12 @@ const state = {
   videoSubtype: [],
   materialName: [],
   adName: [],
+  lifecycleCreativeId: [],
+  material_type: "",
+  creative_id: "",
+  diagnosis: "",
+  stage: "",
+  metric: "ctr",
   compareMode: "lastMonth",
   compareStartDate: "",
   compareEndDate: "",
@@ -72,6 +78,11 @@ const allFilterKeys = DashboardPages.filterKeys();
 const pageFilterDefaults = {
   countryRegion: "ALL",
   channelMarket: "US",
+  material_type: "",
+  creative_id: "",
+  diagnosis: "",
+  stage: "",
+  metric: "ctr",
 };
 
 function emptyPageFilterValue(key) {
@@ -502,6 +513,8 @@ function passesCommonFilters(row, options = {}) {
   if (pageFilters.includes("videoSubtype") && state.videoSubtype.length && !state.videoSubtype.includes(row.video_subtype)) return false;
   if (pageFilters.includes("materialName") && state.materialName.length && (row.material_code || row.material_name || row.ad_name) && !state.materialName.includes(row.material_name || materialName(row))) return false;
   if (pageFilters.includes("adName") && state.adName.length && row.ad_name && !state.adName.includes(row.ad_name)) return false;
+  if (pageFilters.includes("lifecycleCreativeId") && state.lifecycleCreativeId?.length
+    && !state.lifecycleCreativeId.includes(DashboardCreative.lifecycleCreativeIdentity(row))) return false;
   return true;
 }
 
@@ -944,7 +957,13 @@ function initFilters() {
   }
   if (pageFilters.has("product")) {
     const products = advertisingProductOptions();
-    setMultiOptions("product", products, state.product);
+    const pageProducts = state.view === "lifecycle"
+      ? (window.DASHBOARD_LIFECYCLE_DATA?.products || [])
+        .map((product) => product.product_name)
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right, "zh-CN"))
+      : products;
+    setMultiOptions("product", pageProducts, state.product);
   }
   if (pageFilters.has("channelProduct")) {
     const channelProducts = channelProductOptions();
@@ -1219,6 +1238,14 @@ function renderPeriodHint() {
   const period = comparisonWindow();
   const pendingPeriod = pendingComparisonWindow();
   const hint = document.getElementById("periodHint");
+  if (state.view === "lifecycle") {
+    const health = DashboardLifecycle.lifecycleHealth(window.DASHBOARD_LIFECYCLE_DATA || {});
+    const range = health.coverageStart && health.coverageEnd
+      ? `${health.coverageStart} 至 ${health.coverageEnd}` : "加载中";
+    hint.classList.remove("has-pending");
+    hint.innerHTML = `<span>固定快照：${escapeHtml(range)}（生成时间 ${escapeHtml(health.generatedAt || "-")}）</span><span>全局日期与对比控件不适用于本每日预计算分析。</span>`;
+    return;
+  }
   const hasPending = hasPendingTimeChanges();
   const pendingText = hasPending
     ? `<span class="pending-period">待应用输入框：${escapeHtml(pendingTime.startDate)} 至 ${escapeHtml(pendingTime.endDate)} / 对比 ${escapeHtml(pendingPeriod.label)}，点击“应用并刷新”后生效</span>`
@@ -4250,6 +4277,320 @@ function renderChannelsRoute(model) {
   renderChannels(model.channelModel);
 }
 
+const lifecycleCopy = {
+  diagnosis: {
+    tracking_problem: ["⚠", "追踪问题", "bad"],
+    creative_fatigue: ["↓", "素材疲劳", "bad"],
+    audience_fatigue: ["↔", "受众疲劳", "warn"],
+    competition_change: ["⇅", "竞争变化", "warn"],
+    insufficient_evidence: ["?", "证据不足", "muted"],
+    healthy: ["✓", "表现健康", "good"],
+  },
+  action: {
+    check_pixel_attribution: "检查 Pixel 或归因",
+    refresh_creative: "建议换素材",
+    expand_audience: "建议扩受众",
+    adjust_budget: "建议调整预算",
+    continue_observing: "继续观察",
+  },
+  priority: {
+    tracking_problem: "P0 追踪",
+    high_confidence_fatigue: "P1 换素材",
+    audience_fatigue: "P2 扩受众",
+    competition_change: "P3 竞争",
+    monitor: "P4 观察",
+  },
+};
+
+let lifecycleChartDays = 30;
+let lifecycleHoverIndex = null;
+let lifecycleChartModel = null;
+
+function lifecycleDiagnosisBadge(diagnosis) {
+  const [icon, label, tone] = lifecycleCopy.diagnosis[diagnosis]
+    || ["?", diagnosis || "未知", "muted"];
+  return `<span class="lifecycle-badge lifecycle-badge-${tone}" aria-label="诊断：${escapeHtml(label)}"><span class="lifecycle-status-icon" aria-hidden="true">${icon}</span>${escapeHtml(label)}</span>`;
+}
+
+function lifecycleActionLabel(action) {
+  return lifecycleCopy.action[action] || action || "继续观察";
+}
+
+function lifecycleDiagnosisLabel(diagnosis) {
+  return lifecycleCopy.diagnosis[diagnosis]?.[1] || diagnosis || "未知";
+}
+
+function lifecycleChangeLabel(value) {
+  if (value === null || value === undefined) return "—";
+  return `${value > 0 ? "+" : ""}${pct(value)}`;
+}
+
+function lifecycleChangesLabel(row) {
+  return `${lifecycleChangeLabel(row.change3d)} / ${lifecycleChangeLabel(row.change7d)}`;
+}
+
+function lifecycleInlineDetails(row, kind, accessibleLabel) {
+  const localized = {
+    ...row,
+    diagnosisLabel: lifecycleDiagnosisLabel(row.diagnosis),
+    recommendedActionLabel: lifecycleActionLabel(row.recommendedAction),
+  };
+  if (row.representative) {
+    localized.representative = {
+      ...row.representative,
+      diagnosisLabel: lifecycleDiagnosisLabel(row.representative.diagnosis),
+      recommendedActionLabel: lifecycleActionLabel(row.representative.recommendedAction),
+    };
+  }
+  const fields = DashboardLifecycle.lifecycleRowDetailFields(localized, { kind });
+  return DashboardLifecycle.renderLifecycleRowDetails(fields, accessibleLabel);
+}
+
+function renderLifecycleTable(table, headers, rows, emptyText) {
+  if (!table) return;
+  table.innerHTML = `<thead><tr>${headers.map((header) => `<th scope="col" class="${header.className || ""}">${escapeHtml(header.label)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.length ? rows.join("") : `<tr><td colspan="${headers.length}" class="empty">${escapeHtml(emptyText)}</td></tr>`}</tbody>`;
+}
+
+function renderLifecycleKpis(model) {
+  const container = document.getElementById("lifecycleKpis");
+  const values = DashboardLifecycle.lifecycleKpis(model);
+  if (!container || !values) {
+    if (container) container.innerHTML = "";
+    return;
+  }
+  const cards = [
+    ["active", "活跃素材", values.active, "当前有效分母"],
+    ["refresh", "建议换素材", values.refreshCreative, "排除追踪和证据不足"],
+    ["audience", "建议扩受众", values.expandAudience, "排除追踪和证据不足"],
+    ["competition", "竞争变化", values.competitionChange, "排除追踪和证据不足"],
+    ["tracking", "追踪风险", values.trackingRisk, "全部活跃素材为独立分母"],
+  ];
+  container.innerHTML = cards.map(([key, label, value, note]) => `
+    <article class="lifecycle-kpi" data-lifecycle-kpi="${key}" aria-label="${label}：${value.count} 个，占比 ${pct(value.rate)}">
+      <span>${label}</span><strong>${number(value.count)}</strong>
+      <small>${pct(value.rate)} · ${escapeHtml(note)} (${number(value.denominator)})</small>
+    </article>`).join("");
+}
+
+function renderLifecycleHealth(model) {
+  const banner = document.getElementById("lifecycleHealthBanner");
+  if (!banner) return;
+  const health = model.health;
+  banner.className = `lifecycle-health ${health.isOk ? "lifecycle-state-ready" : "lifecycle-state-blocked"}`;
+  banner.setAttribute("role", health.isOk ? "status" : "alert");
+  const range = health.coverageStart && health.coverageEnd
+    ? `${health.coverageStart} 至 ${health.coverageEnd}` : "覆盖区间未知";
+  banner.innerHTML = health.isOk
+    ? `<span class="lifecycle-status-icon" aria-hidden="true">✓</span><div><strong>数据已就绪</strong><p>覆盖 ${escapeHtml(range)} · 更新于 ${escapeHtml(health.generatedAt || "-")}</p></div>`
+    : `<span class="lifecycle-status-icon" aria-hidden="true">⚠</span><div><strong>数据覆盖不完整，已阻断诊断</strong><p>覆盖 ${escapeHtml(range)} · 缺口：${escapeHtml(health.gaps.join("、") || health.coverageStatus)}</p></div>`;
+}
+
+function renderLifecycleActionQueue(model) {
+  const queue = model.emptyReason === "insufficient_evidence"
+    ? [] : DashboardLifecycle.lifecycleActionPresentation(model, state.metric);
+  const headers = [
+    { label: "优先级" }, { label: "素材" }, { label: "产品 / 类型", className: "lifecycle-secondary" },
+    { label: "阶段 / 上线", className: "lifecycle-secondary" }, { label: "近3日 vs 前3日 / 近7日 vs 前7日", className: "lifecycle-secondary" },
+    { label: "诊断 / 置信度" }, { label: "建议" }, { label: "Spend", className: "lifecycle-secondary" },
+  ];
+  const rows = queue.map((item) => `<tr>
+      <td><span class="lifecycle-priority">${escapeHtml(lifecycleCopy.priority[item.priority] || item.priority)}</span></td>
+      <td><button type="button" class="lifecycle-link lifecycle-ellipsis" data-lifecycle-creative="${escapeHtml(item.creativeId)}" aria-label="查看素材 ${escapeHtml(item.creativeId)} 证据详情" title="${escapeHtml(item.creativeId)}">${escapeHtml(item.creativeId)}</button>${lifecycleInlineDetails(item, "action", `素材 ${item.creativeId} 全部字段`)}</td>
+      <td class="lifecycle-secondary lifecycle-ellipsis" title="${escapeHtml(`${item.productName} / ${item.materialType}`)}">${escapeHtml(item.productName)} / ${escapeHtml(item.materialType)}</td>
+      <td class="lifecycle-secondary">${escapeHtml(item.stage)} · 第 ${number(item.calendarDays)} 天</td>
+      <td class="lifecycle-secondary">${lifecycleChangesLabel(item)}</td>
+      <td>${lifecycleDiagnosisBadge(item.diagnosis)}<small>${pct(item.confidence)}</small></td>
+      <td class="lifecycle-ellipsis" title="${escapeHtml(lifecycleActionLabel(item.recommendedAction))}">${escapeHtml(lifecycleActionLabel(item.recommendedAction))}</td>
+      <td class="lifecycle-secondary">${money(item.spend)}</td>
+    </tr>`);
+  const emptyText = model.emptyReason === "insufficient_evidence"
+    ? "当前素材证据不足，暂不给出行动建议。"
+    : "当前筛选下暂无待处理素材。";
+  renderLifecycleTable(document.getElementById("lifecycleActionQueue"), headers, rows, emptyText);
+}
+
+function lifecycleDiagnosisSummary(counts = {}) {
+  return Object.entries(counts).map(([diagnosis, count]) => {
+    const label = lifecycleCopy.diagnosis[diagnosis]?.[1] || diagnosis;
+    return `${label} ${count}`;
+  }).join("·") || "暂无诊断";
+}
+
+function lifecycleDrillAttribute(isProduct) {
+  return isProduct ? 'data-lifecycle-drill="product"' : 'data-lifecycle-drill="material_type"';
+}
+
+function renderLifecycleBreadcrumb(model) {
+  const breadcrumb = document.getElementById("lifecycleBreadcrumb");
+  const items = [{ level: "root", label: "全部产品" }, ...model.breadcrumb];
+  breadcrumb.innerHTML = items.map((item, index) => `${index ? '<span aria-hidden="true">›</span>' : ""}<button type="button" data-lifecycle-breadcrumb="${escapeHtml(item.level)}" aria-label="返回${escapeHtml(item.label)}层级">${escapeHtml(item.label)}</button>`).join("");
+}
+
+function renderLifecycleHierarchy(model) {
+  const hierarchy = DashboardLifecycle.lifecycleHierarchyPresentation(model, state.metric);
+  const table = document.getElementById("lifecycleHierarchyTable");
+  const title = document.getElementById("lifecycleHierarchyTitle");
+  renderLifecycleBreadcrumb(model);
+  if (hierarchy.level === "creative") {
+    title.textContent = "素材衰退明细";
+    const creativeById = new Map(model.creatives.map((creative) => [creative.creative_id, creative]));
+    const headers = [
+      { label: "素材" }, { label: "阶段 / 上线" }, { label: "诊断" },
+      { label: "近3日 vs 前3日 / 近7日 vs 前7日", className: "lifecycle-secondary" }, { label: "置信度", className: "lifecycle-secondary" },
+      { label: "建议", className: "lifecycle-secondary" }, { label: "Spend" },
+    ];
+    const rows = hierarchy.rows.map((row) => {
+      const creative = creativeById.get(row.id);
+      const detailRow = {
+        ...row,
+        creativeId: row.id,
+        productName: creative?.product_name,
+        materialType: creative?.material_type,
+      };
+      return `<tr>
+        <td><button type="button" class="lifecycle-link lifecycle-ellipsis" data-lifecycle-creative="${escapeHtml(row.id)}" aria-label="查看素材 ${escapeHtml(row.label)} 证据详情" title="${escapeHtml(row.label)}">${escapeHtml(row.label)}</button>${lifecycleInlineDetails(detailRow, "action", `素材 ${row.label} 全部字段`)}</td>
+        <td>${escapeHtml(row.stage)} · 第 ${number(row.calendarDays)} 天</td><td>${lifecycleDiagnosisBadge(row.diagnosis)}</td>
+        <td class="lifecycle-secondary">${lifecycleChangesLabel(row)}</td>
+        <td class="lifecycle-secondary">${pct(row.confidence)}</td><td class="lifecycle-secondary lifecycle-ellipsis" title="${escapeHtml(lifecycleActionLabel(row.recommendedAction))}">${escapeHtml(lifecycleActionLabel(row.recommendedAction))}</td><td>${money(row.spend)}</td>
+      </tr>`;
+    });
+    renderLifecycleTable(table, headers, rows, "暂无素材数据。");
+    return;
+  }
+  const isProduct = hierarchy.level === "product";
+  title.textContent = isProduct ? "产品衰退趋势" : "素材类型衰退趋势";
+  const headers = [
+    { label: isProduct ? "产品" : "素材类型" },
+    { label: "代表素材阶段 / 上线", className: "lifecycle-secondary" },
+    { label: "代表素材 近3日 vs 前3日 / 近7日 vs 前7日", className: "lifecycle-secondary" },
+    { label: "代表诊断 / 置信度" },
+    { label: "代表建议", className: "lifecycle-secondary" },
+    { label: "素材数", className: "lifecycle-secondary" },
+    { label: "聚合 Spend" },
+  ];
+  const rows = hierarchy.rows.map((row) => {
+    const representative = row.representative;
+    return `<tr>
+      <td><button type="button" class="lifecycle-link lifecycle-ellipsis" ${lifecycleDrillAttribute(isProduct)} data-lifecycle-value="${escapeHtml(row.label)}" aria-label="下钻查看 ${escapeHtml(row.label)}" title="${escapeHtml(row.label)}">${escapeHtml(row.label)}</button>${lifecycleInlineDetails(row, "aggregate", `${isProduct ? "产品" : "素材类型"} ${row.label} 完整分析字段`)}</td>
+      <td class="lifecycle-secondary">${representative ? `${escapeHtml(representative.stage)} · 第 ${number(representative.calendarDays)} 天` : "—"}</td>
+      <td class="lifecycle-secondary">${representative ? lifecycleChangesLabel(representative) : "—"}</td>
+      <td>${representative ? `${lifecycleDiagnosisBadge(representative.diagnosis)}<small>${pct(representative.confidence)}</small>` : "—"}</td>
+      <td class="lifecycle-secondary lifecycle-ellipsis" title="${escapeHtml(representative ? lifecycleActionLabel(representative.recommendedAction) : "—")}">${escapeHtml(representative ? lifecycleActionLabel(representative.recommendedAction) : "—")}</td>
+      <td class="lifecycle-secondary" title="${escapeHtml(lifecycleDiagnosisSummary(row.diagnosisCounts))}">${number(row.creativeCount)}</td>
+      <td>${money(row.spend)}</td>
+    </tr>`;
+  });
+  renderLifecycleTable(table, headers, rows, "当前筛选下暂无层级数据。");
+}
+
+function renderLifecycleCreativeDetail(model, creativeId = state.creative_id) {
+  const drawer = document.getElementById("lifecycleCreativeDetail");
+  const body = document.getElementById("lifecycleCreativeDetailBody");
+  const chartContainer = document.getElementById("lifecycleMetricCharts");
+  const explanationContainer = document.getElementById("lifecycleEvidenceExplanation");
+  const actions = document.getElementById("lifecycleDetailActions");
+  const detail = DashboardLifecycle.lifecycleCreativeDetail(model, creativeId);
+  drawer.hidden = !detail;
+  if (!detail) {
+    body.innerHTML = "";
+    chartContainer.innerHTML = "";
+    explanationContainer.innerHTML = "";
+    actions.innerHTML = "";
+    lifecycleChartModel = null;
+    return;
+  }
+  const creative = detail.creative;
+  const diagnosticScope = creative.diagnostic_scope || {};
+  const diagnosticScopeLabel = [
+    diagnosticScope.account_id,
+    diagnosticScope.country,
+    diagnosticScope.adset_id,
+  ].filter(Boolean).join(" / ") || "scope 未知";
+  const chartModel = DashboardLifecycleMetricCharts.metricSeries(
+    creative.curve || [],
+    { days: lifecycleChartDays },
+  );
+  chartModel.annotations = DashboardLifecycleMetricCharts.evidenceAnnotations(
+    creative.metric_evidence || {},
+    creative.diagnostic_scope || {},
+  );
+  lifecycleChartModel = chartModel;
+  const hover = DashboardLifecycleMetricCharts.sharedHoverModel(
+    chartModel,
+    lifecycleHoverIndex === null ? chartModel.dates.length - 1 : lifecycleHoverIndex,
+  );
+  lifecycleHoverIndex = hover?.index ?? null;
+  document.querySelectorAll("[data-lifecycle-chart-days]").forEach((button) => {
+    const active = Number(button.dataset.lifecycleChartDays) === lifecycleChartDays;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  body.innerHTML = `
+    <div class="lifecycle-detail-summary"><strong class="lifecycle-ellipsis" title="${escapeHtml(creative.creative_id)}">${escapeHtml(creative.creative_id)}</strong>${lifecycleDiagnosisBadge(creative.diagnosis)}<span>${escapeHtml(lifecycleActionLabel(creative.recommended_action))}</span><span>素材总 Spend ${money(detail.spend)}</span><span>曲线口径（诊断 scope）：${escapeHtml(diagnosticScopeLabel)}</span></div>
+    <h4>Scope 证据（account / country / adset）</h4>
+    <div class="lifecycle-scope-list">${detail.scopes.length ? detail.scopes.map((scope) => `
+      <article><strong>${escapeHtml(scope.account_id)} / ${escapeHtml(scope.country)} / ${escapeHtml(scope.adset_id)}</strong>
+      <p>${lifecycleDiagnosisBadge(scope.diagnosis)} · 置信度 ${pct(scope.confidence)}</p>
+      <p>证据：${escapeHtml((scope.evidence || []).join("、") || "证据不足")}</p>
+      ${(scope.exclusions || []).length ? `<p>排除：${escapeHtml(scope.exclusions.join("、"))}</p>` : ""}
+      ${(scope.gaps || []).length ? `<p>缺口：${escapeHtml(scope.gaps.join("、"))}</p>` : ""}</article>`).join("") : '<p class="empty">暂无 scope 证据。</p>'}</div>`;
+  chartContainer.innerHTML = DashboardLifecycleMetricCharts.renderMetricChartsSvg(
+    chartModel,
+    { hoverDate: hover?.date },
+  );
+  const explanation = DashboardLifecycle.lifecycleExplanation(
+    creative,
+    model.payload.rule_version,
+  );
+  explanationContainer.innerHTML = explanation.map((section) => `
+    <article data-explanation="${escapeHtml(section.key)}">
+      <h4>${escapeHtml(section.label)}</h4>
+      <ul>${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </article>`).join("");
+  const creativeTarget = DashboardLifecycle.lifecycleNavigationTarget("creative", state, creative);
+  const attributionTarget = DashboardLifecycle.lifecycleNavigationTarget("attribution", state, creative);
+  actions.innerHTML = `${creative.diagnosis === "tracking_problem"
+    ? `<a class="ghost-button" href="${escapeHtml(attributionTarget.href)}" data-lifecycle-navigation="attribution">查看归因健康</a>` : ""}
+    <a class="ghost-button" href="${escapeHtml(creativeTarget.href)}" data-lifecycle-navigation="creative">查看素材表现</a>
+    <p>仅用于跳转分析，不会执行 Meta 广告变更。</p>`;
+}
+
+function renderLifecycleState(model) {
+  const stateElement = document.getElementById("lifecyclePageState");
+  const content = {
+    health_not_ok: ["⚠", "证据不足：数据覆盖未通过，已隐藏 KPI 和诊断结论。", "blocked"],
+    no_data: ["∅", "暂无生命周期数据。", "empty"],
+    no_matching_creatives: ["⌕", "当前筛选没有匹配的素材。", "empty"],
+    insufficient_evidence: ["?", "当前素材证据不足，仅显示缺口，不给出行动结论。", "insufficient"],
+  }[model.emptyReason];
+  stateElement.hidden = !content;
+  stateElement.className = `lifecycle-page-state ${content ? `lifecycle-state-${content[2]}` : ""}`;
+  stateElement.innerHTML = content ? `<span class="lifecycle-status-icon" aria-hidden="true">${content[0]}</span><strong>${content[1]}</strong>` : "";
+}
+
+function renderLifecyclePage(model) {
+  renderPeriodHint();
+  document.getElementById("periodBadge").textContent = model.health.coverageStart && model.health.coverageEnd
+    ? `固定快照 ${model.health.coverageStart} 至 ${model.health.coverageEnd}`
+    : "固定快照";
+  renderLifecycleHealth(model);
+  renderLifecycleState(model);
+  const blocked = model.readOnly;
+  ["lifecycleKpis", "lifecycleActionQueue", "lifecycleHierarchyTable", "lifecycleBreadcrumb"].forEach((id) => {
+    document.getElementById(id)?.closest(id.includes("Table") || id.includes("Queue") ? ".panel" : `#${id}`)?.classList.toggle("lifecycle-blocked-content", blocked);
+  });
+  if (blocked) {
+    renderLifecycleKpis(model);
+    document.getElementById("lifecycleCreativeDetail").hidden = true;
+    return;
+  }
+  renderLifecycleKpis(model);
+  renderLifecycleActionQueue(model);
+  renderLifecycleHierarchy(model);
+  renderLifecycleCreativeDetail(model);
+}
+
 const pageRenderModels = new Map();
 let renderRequestToken = 0;
 let latestRenderRequest = null;
@@ -4313,6 +4654,21 @@ DashboardRenderDispatcher.register("overview", measuredPageRenderer("overview", 
 DashboardRenderDispatcher.register("product", measuredPageRenderer("product", buildProductRenderModel, renderProductRoute));
 DashboardRenderDispatcher.register("country", measuredPageRenderer("country", buildCountryRenderModel, renderCountryRoute));
 DashboardRenderDispatcher.register("creative", measuredPageRenderer("creative", buildCreativeRenderModel, renderCreativeRoute));
+DashboardRenderDispatcher.register("lifecycle", measuredPageRenderer(
+  "lifecycle",
+  () => {
+    const normalized = DashboardState.normalizeLifecycleFilters(
+      state,
+      window.DASHBOARD_LIFECYCLE_DATA,
+    );
+    const changed = ["product", "material_type", "creative_id", "diagnosis", "stage", "metric"]
+      .some((key) => JSON.stringify(state[key]) !== JSON.stringify(normalized[key]));
+    Object.assign(state, normalized);
+    if (changed) syncUrl("replace");
+    return DashboardLifecycle.selectLifecycleModel(window.DASHBOARD_LIFECYCLE_DATA, state);
+  },
+  renderLifecyclePage,
+));
 DashboardRenderDispatcher.register("landing", measuredPageRenderer("landing", buildLandingRenderModel, renderLandingPage));
 DashboardRenderDispatcher.register("attribution", measuredPageRenderer("attribution", buildAttributionRenderModel, renderAttributionRoute));
 DashboardRenderDispatcher.register("channels", measuredPageRenderer(
@@ -4324,7 +4680,10 @@ DashboardRenderDispatcher.register("channels", measuredPageRenderer(
 function renderSharedShell(page) {
   document.getElementById("viewTitle").textContent = page.title;
   document.getElementById("viewSubtitle").textContent = page.subtitle;
-  document.getElementById("periodBadge").textContent = `${daysBetween(state.startDate, state.endDate)} 天`;
+  const lifecycleOnly = state.view === "lifecycle";
+  document.getElementById("periodBadge").textContent = lifecycleOnly
+    ? "固定快照" : `${daysBetween(state.startDate, state.endDate)} 天`;
+  document.querySelector(".filterbar").classList.toggle("lifecycle-fixed-snapshot", lifecycleOnly);
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === state.view));
   document.querySelectorAll("[id$='View']").forEach((section) => section.classList.add("hidden"));
   document.getElementById(`${state.view}View`).classList.remove("hidden");
@@ -4334,7 +4693,7 @@ function renderSharedShell(page) {
   const attributionOnly = state.view === "attribution";
   ["insightSummary", "kpis", "comparison", "actionInsights"].forEach((id) => {
     const compactPage = ["country", "creative"].includes(state.view) && (id === "comparison" || id === "actionInsights");
-    document.getElementById(id).classList.toggle("hidden", attributionOnly || compactPage);
+    document.getElementById(id).classList.toggle("hidden", attributionOnly || lifecycleOnly || compactPage);
   });
 }
 
@@ -4366,7 +4725,102 @@ function bindEvents() {
     initFilters();
     requestRender(render, { historyMode: "", preserve: false });
   });
+  const updateLifecycleHover = (nextIndex, restoreFocus = false) => {
+    if (!Number.isInteger(nextIndex) || nextIndex === lifecycleHoverIndex) return;
+    lifecycleHoverIndex = nextIndex;
+    renderLifecycleCreativeDetail(pageRenderModels.get("lifecycle"));
+    if (restoreFocus) {
+      requestAnimationFrame(() => document.querySelector(
+        `#lifecycleMetricCharts [data-lifecycle-hover-index="${nextIndex}"][tabindex]`,
+      )?.focus());
+    }
+  };
+  document.addEventListener("pointerover", (event) => {
+    const hoverTarget = event.target.closest("[data-lifecycle-hover-index]");
+    if (!hoverTarget || state.view !== "lifecycle") return;
+    const nextIndex = Number(hoverTarget.dataset.lifecycleHoverIndex);
+    updateLifecycleHover(nextIndex);
+  });
+  document.addEventListener("focusin", (event) => {
+    const hoverTarget = event.target.closest("[data-lifecycle-hover-index][tabindex]");
+    if (!hoverTarget || state.view !== "lifecycle") return;
+    updateLifecycleHover(Number(hoverTarget.dataset.lifecycleHoverIndex), true);
+  });
+  document.addEventListener("keydown", (event) => {
+    const hoverTarget = event.target.closest("[data-lifecycle-hover-index][tabindex]");
+    if (!hoverTarget || state.view !== "lifecycle") return;
+    const next = DashboardLifecycleMetricCharts.keyboardHoverModel(
+      lifecycleChartModel,
+      Number(hoverTarget.dataset.lifecycleHoverIndex),
+      event.key,
+    );
+    if (!next) return;
+    event.preventDefault();
+    updateLifecycleHover(next.index, true);
+  });
   document.addEventListener("click", (event) => {
+    const chartWindow = event.target.closest("[data-lifecycle-chart-days]");
+    if (chartWindow) {
+      event.preventDefault();
+      lifecycleChartDays = Number(chartWindow.dataset.lifecycleChartDays);
+      lifecycleHoverIndex = null;
+      renderLifecycleCreativeDetail(pageRenderModels.get("lifecycle"));
+      return;
+    }
+    const lifecycleNavigation = event.target.closest("[data-lifecycle-navigation]");
+    if (lifecycleNavigation) {
+      event.preventDefault();
+      const target = DashboardLifecycle.lifecycleNavigationTarget(
+        lifecycleNavigation.dataset.lifecycleNavigation,
+        state,
+        pageRenderModels.get("lifecycle")?.creatives?.find(
+          (item) => item.creative_id === state.creative_id,
+        ),
+      );
+      Object.assign(state, DashboardLifecycle.applyLifecycleNavigation(state, target));
+      requestRender(render, { historyMode: "push" });
+      return;
+    }
+    const drill = event.target.closest("[data-lifecycle-drill]");
+    if (drill) {
+      event.preventDefault();
+      if (drill.dataset.lifecycleDrill === "product") {
+        state.product = [drill.dataset.lifecycleValue];
+        state.material_type = "";
+        state.creative_id = "";
+      } else {
+        state.material_type = drill.dataset.lifecycleValue;
+        state.creative_id = "";
+      }
+      requestRender(render, { historyMode: "replace" });
+      return;
+    }
+    const creative = event.target.closest("[data-lifecycle-creative]");
+    if (creative) {
+      event.preventDefault();
+      const selection = DashboardLifecycle.lifecycleSelectionForCreative(
+        window.DASHBOARD_LIFECYCLE_DATA,
+        creative.dataset.lifecycleCreative,
+      );
+      if (selection) Object.assign(state, selection);
+      requestRender(render, { historyMode: "replace" });
+      return;
+    }
+    const breadcrumb = event.target.closest("[data-lifecycle-breadcrumb]");
+    if (breadcrumb) {
+      event.preventDefault();
+      const level = breadcrumb.dataset.lifecycleBreadcrumb;
+      if (level === "root") state.product = [];
+      if (["root", "product"].includes(level)) state.material_type = "";
+      state.creative_id = "";
+      requestRender(render, { historyMode: "replace" });
+      return;
+    }
+    if (event.target.closest("[data-lifecycle-close-detail]")) {
+      state.creative_id = "";
+      requestRender(render, { historyMode: "replace" });
+      return;
+    }
     const button = event.target.closest("[data-tree-node]");
     if (!button) return;
     event.preventDefault();

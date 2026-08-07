@@ -43,9 +43,33 @@
       return row.operator !== "Google" && row.material_type !== "Google";
     }
 
+    function normalizeLifecycleCreativeName(value) {
+      return String(value ?? "")
+        .trim()
+        .replace(/[\s_\-–—]*(?:广告副本|copy)(?:[\s_\-]*\d+)?\s*$/i, "")
+        .replace(/[\s_]+/g, " ")
+        .trim()
+        .toLowerCase();
+    }
+
+    function lifecycleCreativeIdentity(row = {}) {
+      const provided = String(row.creative_id ?? "").trim();
+      if (provided) return provided;
+      const materialCode = String(row.material_code ?? "").trim();
+      if (materialCode) return `code:${materialCode}`;
+      const materialName = normalizeLifecycleCreativeName(row.material_name)
+        || normalizeLifecycleCreativeName(row.ad_name);
+      if (materialName) return `name:${materialName}`;
+      const adId = String(row.ad_id ?? "").trim();
+      return adId ? `ad:${adId}` : "unknown";
+    }
+
     function applyFilters(rows, filters = {}) {
       return (rows || []).filter(isMetaRow).filter((row) => Object.entries(filters).every(([key, selected]) => {
         if (!Array.isArray(selected) || selected.length === 0) return true;
+        if (key === "lifecycleCreativeId") {
+          return selected.includes(lifecycleCreativeIdentity(row));
+        }
         const fields = filterFields[key] || [key];
         return fields.some((field) => selected.includes(row[field]));
       }));
@@ -302,6 +326,7 @@
       applyFilters,
       buildHierarchy,
       buildProductMaterialMatrix,
+      lifecycleCreativeIdentity,
       normalizeMaterialCode,
       segmentDimension,
       selectModel,

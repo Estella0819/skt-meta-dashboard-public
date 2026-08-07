@@ -30,8 +30,15 @@
     creative: {
       title: "素材",
       subtitle: "高花费、高回报和风险素材分层",
-      filters: ["account", "country", "product", "productForm", "operator", "materialType", "videoSource", "videoSubtype", "materialName", "adName"],
+      filters: ["account", "country", "product", "productForm", "operator", "materialType", "videoSource", "videoSubtype", "materialName", "adName", "lifecycleCreativeId"],
       segments: ["type", "source", "subtype"],
+      modules,
+    },
+    lifecycle: {
+      title: "素材生命周期",
+      subtitle: "从产品到素材识别衰退趋势和行动机会",
+      filters: ["product", "material_type", "creative_id", "diagnosis", "stage", "metric"],
+      segments: [],
       modules,
     },
     landing: {
@@ -65,5 +72,9 @@
     return [...new Set(Object.values(pages).flatMap((page) => page.filters))];
   }
 
-  return { get, filterKeys };
+  function pageIds() {
+    return Object.keys(pages);
+  }
+
+  return { get, filterKeys, pageIds };
 });

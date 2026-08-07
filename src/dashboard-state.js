@@ -13,6 +13,11 @@
   const scalarFilterDefaults = {
     countryRegion: "ALL",
     channelMarket: "US",
+    material_type: "",
+    creative_id: "",
+    diagnosis: "",
+    stage: "",
+    metric: "ctr",
   };
 
   function cleanValues(values) {
@@ -76,6 +81,47 @@
     return parsed;
   }
 
+  function normalizeLifecycleFilters(filters = {}, payload = {}) {
+    const productValues = Array.isArray(filters.product)
+      ? cleanValues(filters.product)
+      : cleanValues([filters.product]);
+    const validProducts = new Set(
+      (payload.products || []).flatMap((item) => [item.product_name, item.product_id]).filter(Boolean),
+    );
+    const product = productValues.filter((value) => validProducts.has(value));
+    const selectedProductNames = new Set(
+      (payload.products || [])
+        .filter((item) => product.includes(item.product_name) || product.includes(item.product_id))
+        .map((item) => item.product_name),
+    );
+
+    const requestedMaterialType = String(filters.material_type || "").trim();
+    const materialTypeValid = Boolean(requestedMaterialType) && (payload.material_types || []).some(
+      (item) => selectedProductNames.has(item.product_name)
+        && item.material_type === requestedMaterialType,
+    );
+    const material_type = materialTypeValid ? requestedMaterialType : "";
+
+    const requestedCreativeId = String(filters.creative_id || "").trim();
+    const creativeValid = Boolean(requestedCreativeId && material_type) && (payload.creatives || []).some(
+      (item) => item.creative_id === requestedCreativeId
+        && selectedProductNames.has(item.product_name)
+        && item.material_type === material_type,
+    );
+    const metric = ["ctr", "cpm", "frequency", "roas"].includes(filters.metric)
+      ? filters.metric
+      : "ctr";
+
+    return {
+      product,
+      material_type,
+      creative_id: creativeValid ? requestedCreativeId : "",
+      diagnosis: String(filters.diagnosis || "").trim(),
+      stage: String(filters.stage || "").trim(),
+      metric,
+    };
+  }
+
   function create(initial = {}) {
     let value = structuredClone(initial);
     const listeners = new Set();
@@ -119,5 +165,5 @@
     };
   }
 
-  return { create, parseUrl, serializeUrl };
+  return { create, parseUrl, serializeUrl, normalizeLifecycleFilters };
 });
