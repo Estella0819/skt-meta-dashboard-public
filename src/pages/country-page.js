@@ -29,6 +29,7 @@
       if (!value || value === "UNKNOWN") return "未识别地区";
       if (value === "SA" || value === "AE") return "中东";
       if (value === "US") return "美国";
+      if (value === "MX") return "墨西哥";
       return "澳英加";
     }
 

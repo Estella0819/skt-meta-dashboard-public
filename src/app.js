@@ -37,6 +37,7 @@ const state = {
   creativeTrendSelection: [],
   creativeTrendSelectionInitialized: false,
   expandedRegions: [],
+  expandedProductSeries: [],
   account: [],
   product: [],
   channelProduct: [],
@@ -2546,6 +2547,22 @@ function toggleCountryHierarchy(nodeType, nodeValue, parentValue = "") {
   return "filter";
 }
 
+function toggleProductHierarchy(nodeType, nodeValue, parentValue = "") {
+  if (nodeType === "product_series") {
+    const index = state.expandedProductSeries.indexOf(nodeValue);
+    if (index === -1) state.expandedProductSeries.push(nodeValue);
+    else state.expandedProductSeries.splice(index, 1);
+    return "hierarchy";
+  }
+  const selected = state.product.length === 1 && state.product[0] === nodeValue;
+  state.product.splice(0);
+  if (!selected) state.product.push(nodeValue);
+  if (parentValue && !state.expandedProductSeries.includes(parentValue)) {
+    state.expandedProductSeries.push(parentValue);
+  }
+  return "filter";
+}
+
 function syncCreativeFilterSelections() {
   ["materialType", "videoSource", "videoSubtype"].forEach(syncMultiSelection);
 }
@@ -2865,6 +2882,24 @@ function productAnalysisRows(currentRows, previousRows, dims, sortKey = "purchas
     .sort((a, b) => getMetric(b, sortKey) - getMetric(a, sortKey));
 }
 
+function renderProductHierarchy(productModel, columns) {
+  const hierarchyRows = DashboardProduct.buildProductHierarchy(
+    productModel.hierarchyCurrentRows,
+    productModel.hierarchyPreviousRows,
+    state.expandedProductSeries,
+  ).map((row) => ({
+    ...row,
+    _rowClass: [
+      `tree-row-depth-${row._depth}`,
+      row._nodeType === "product" && state.product.includes(row.standard_product_name) ? "is-active-drilldown" : "",
+    ].filter(Boolean).join(" "),
+  }));
+  renderTable("productSegmentTable", hierarchyRows, columns, Number.POSITIVE_INFINITY, {
+    summaryRows: productModel.detail,
+    previousSummaryRows: productModel.previousDetail,
+  });
+}
+
 function renderProductPage(productModel) {
   const segmentMeta = {
     overall: { label: "整体表现", dimensionLabel: "产品名称" },
@@ -2892,16 +2927,22 @@ function renderProductPage(productModel) {
   renderProductTrend(productModel);
   DashboardCharts.renderDonut(
     document.getElementById("productGmvDonut"),
-    DashboardCharts.buildDonutModel(productModel.trendByProduct, {
-      categoryKey: "standard_product_name",
+    DashboardCharts.buildDonutModel(productModel.seriesStructure, {
+      categoryKey: "product_series",
       limit: 8,
     }),
     { ariaLabel: "产品 GMV 结构" },
   );
 
-  const leadingColumns = [
-    { key: "standard_product_name", label: "产品名称", sticky: true, filterKey: "standard_product_name", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
-  ];
+  const leadingColumns = [{
+    key: "standard_product_name",
+    label: "产品名称",
+    sticky: true,
+    filterKey: productModel.segment === "overall" ? false : "standard_product_name",
+    format: productModel.segment === "overall"
+      ? (_value, row) => hierarchyLabel(row)
+      : (value) => `<span class="tag">${escapeHtml(value)}</span>`,
+  }];
   if (productModel.segment !== "overall") {
     leadingColumns.push({
       key: productModel.dimension,
@@ -2925,9 +2966,14 @@ function renderProductPage(productModel) {
   document.getElementById("productTableConclusion").textContent = best
     ? `${best.standard_product_name} 当前归因收入最高，为 ${money(best.purchase_value)}，ROAS ${ratio(best.roas)}。`
     : "当前筛选下暂无产品数据。";
-  renderTable("productSegmentTable", productModel.detail, [...leadingColumns, ...metricColumns], Number.POSITIVE_INFINITY, {
-    previousSummaryRows: productModel.previousDetail,
-  });
+  const columns = [...leadingColumns, ...metricColumns];
+  if (productModel.segment === "overall") {
+    renderProductHierarchy(productModel, columns);
+  } else {
+    renderTable("productSegmentTable", productModel.detail, columns, Number.POSITIVE_INFINITY, {
+      previousSummaryRows: productModel.previousDetail,
+    });
+  }
 }
 
 function renderProductTrend(productModel) {
@@ -4335,6 +4381,18 @@ function bindEvents() {
       }
       syncCreativeFilterSelections();
       requestRender(render, { historyMode: "replace" });
+    } else if (["product_series", "product"].includes(nodeType)) {
+      const updateKind = toggleProductHierarchy(nodeType, nodeValue, parentValue);
+      if (updateKind === "hierarchy") {
+        const productModel = pageRenderModels.get("product")?.productModel;
+        requestRender(
+          productModel ? () => renderProductPage(productModel) : render,
+          { historyMode: null },
+        );
+        return;
+      }
+      syncMultiSelection("product");
+      requestRender(render, { historyMode: "replace" });
     } else {
       const updateKind = toggleCountryHierarchy(nodeType, nodeValue, parentValue);
       if (updateKind === "hierarchy") {
@@ -4525,6 +4583,7 @@ function bindEvents() {
     state.creativeExpandedSources = [];
     state.creativeSegment = "type";
     state.expandedRegions = [];
+    state.expandedProductSeries = [];
     initFilters();
     requestRender(render, { historyMode: "replace" });
   });
