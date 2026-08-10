@@ -822,6 +822,7 @@ function setMultiOptions(key, values, selected, groups = []) {
             <span>${escapeHtml(group.label)}</span>
             <span class="filter-group-count">${group.values.length}</span>
           </label>
+          <button class="filter-group-only" type="button" data-filter-group-only="${key}" aria-label="仅查看${escapeHtml(group.label)}">仅看</button>
         </div>
         <div class="filter-group-children">
           ${group.values.map((value) => optionMarkup(value, optionIndex++)).join("")}

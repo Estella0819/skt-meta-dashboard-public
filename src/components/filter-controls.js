@@ -89,6 +89,15 @@
     });
   }
 
+  function selectOnlyGroup(panel, group) {
+    const groupedInputs = new Set(group.querySelectorAll("input[data-filter-option]"));
+    optionInputs(panel).forEach((input) => {
+      input.checked = groupedInputs.has(input);
+    });
+    updateSelectAll(panel);
+    return selectionForState(panel);
+  }
+
   function updateSelectAll(panel) {
     const input = panel.querySelector("[data-filter-select-all]");
     if (!input) return;
@@ -174,6 +183,13 @@
     });
 
     root.addEventListener("click", (event) => {
+      if (event.target.matches("[data-filter-group-only]")) {
+        const panel = event.target.closest(".multi-panel");
+        const group = event.target.closest("[data-filter-group-row]");
+        selectOnlyGroup(panel, group);
+        commit(event.target.dataset.filterGroupOnly, panel);
+        return;
+      }
       if (!event.target.matches("[data-filter-group-toggle]")) return;
       const group = event.target.closest("[data-filter-group-row]");
       const collapsed = group.classList.toggle("collapsed");
@@ -190,6 +206,7 @@
     selectAllState,
     toggleAll,
     filterVisibleOptions,
+    selectOnlyGroup,
     updateGroupSelections,
     syncSelection,
     bindInteractions,
