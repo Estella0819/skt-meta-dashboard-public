@@ -429,6 +429,54 @@ input[type="date"] {
   background: #f1f5f7;
 }
 
+.filter-option-group + .filter-option-group {
+  border-top: 1px solid var(--line);
+}
+
+.filter-option-group.hidden,
+.filter-option-group.collapsed .filter-group-children {
+  display: none;
+}
+
+.filter-group-header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+}
+
+.filter-group-toggle {
+  width: 24px;
+  height: 28px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transform: rotate(90deg);
+  transition: transform 120ms ease;
+}
+
+.filter-option-group.collapsed .filter-group-toggle {
+  transform: rotate(0deg);
+}
+
+.filter-group-option {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  font-weight: 750;
+}
+
+.filter-group-count {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.filter-group-children {
+  padding-left: 24px;
+}
+
 .select-all-option input:indeterminate {
   accent-color: var(--accent);
 }

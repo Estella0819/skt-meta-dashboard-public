@@ -123,6 +123,7 @@ function syncUrl(historyMode = "replace") {
 }
 
 const NON_US_COMPARABLE_COUNTRIES = ["AU", "CA", "JP", "GB"];
+const COUNTRY_REGION_ORDER = ["中东", "美国", "墨西哥", "澳英加", "未识别地区"];
 
 const pendingTime = {
   startDate: "",
@@ -789,17 +790,45 @@ function channelAggregate(rows, dims = []) {
   }));
 }
 
-function setMultiOptions(key, values, selected) {
+function setMultiOptions(key, values, selected, groups = []) {
   const panel = document.getElementById(`${key}FilterPanel`);
   if (!panel) return;
   filterOptions[key] = [...values];
-  const effectiveSelected = selected.length ? selected : values;
-  const selectedSet = new Set(effectiveSelected);
+  const requested = Array.isArray(selected) ? selected : [];
+  const explicitlyEmpty = requested.includes(DashboardFilters.NONE_VALUE);
+  const selectedSet = new Set(explicitlyEmpty ? [] : (requested.length ? requested : values));
   const search = values.length > 5 ? `
     <div class="multi-search">
       <input type="search" placeholder="搜索选项" data-filter-search="${key}" aria-label="搜索${key}筛选项" />
     </div>
   ` : "";
+  const optionMarkup = (value, index) => {
+    const id = `${key}_${index}`;
+    return `
+      <label class="check-option" for="${id}" data-filter-option-row>
+        <input id="${id}" type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""} data-filter="${key}" data-filter-option />
+        <span>${escapeHtml(value)}</span>
+      </label>
+    `;
+  };
+  let optionIndex = 0;
+  const options = groups.length
+    ? groups.map((group, groupIndex) => `
+      <section class="filter-option-group" data-filter-group-row data-filter-group-label="${escapeHtml(group.label)}">
+        <div class="filter-group-header">
+          <button class="filter-group-toggle" type="button" data-filter-group-toggle aria-expanded="true" aria-label="展开或收起${escapeHtml(group.label)}">›</button>
+          <label class="check-option filter-group-option" for="${key}_group_${groupIndex}">
+            <input id="${key}_group_${groupIndex}" type="checkbox" data-filter-group="${key}" />
+            <span>${escapeHtml(group.label)}</span>
+            <span class="filter-group-count">${group.values.length}</span>
+          </label>
+        </div>
+        <div class="filter-group-children">
+          ${group.values.map((value) => optionMarkup(value, optionIndex++)).join("")}
+        </div>
+      </section>
+    `).join("")
+    : values.map((value) => optionMarkup(value, optionIndex++)).join("");
   panel.innerHTML = `
     <div class="multi-actions">
       <span>${values.length} 项</span>
@@ -810,18 +839,10 @@ function setMultiOptions(key, values, selected) {
         <input id="${key}_all" type="checkbox" data-filter-select-all="${key}" />
         <span>全选</span>
       </label>
-      ${values.map((value, index) => {
-        const id = `${key}_${index}`;
-        return `
-          <label class="check-option" for="${id}" data-filter-option-row>
-            <input id="${id}" type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""} data-filter="${key}" data-filter-option />
-            <span>${escapeHtml(value)}</span>
-          </label>
-        `;
-      }).join("")}
+      ${options}
     </div>
   `;
-  updateSelectAllControl(key);
+  if (typeof panel.querySelectorAll === "function") DashboardFilters.syncSelection(panel, selected);
   updateMultiButton(key);
 }
 
@@ -835,23 +856,26 @@ function getVisibleFilterValues(key) {
 }
 
 function updateSelectAllControl(key) {
-  const input = document.querySelector(`#${key}FilterPanel [data-filter-select-all="${key}"]`);
-  if (!input) return;
-  const visible = getVisibleFilterValues(key);
-  const status = DashboardFilters.selectAllState(getSelectedValues(key), visible);
+  const panel = document.getElementById(`${key}FilterPanel`);
+  const input = panel?.querySelector(`[data-filter-select-all="${key}"]`);
+  if (!panel || !input) return;
+  const available = filterOptions[key] || [];
+  const status = DashboardFilters.selectAllState(getSelectedValues(key), available);
   input.checked = status === "checked";
   input.indeterminate = status === "indeterminate";
-  input.disabled = visible.length === 0;
+  input.disabled = available.length === 0;
   input.dataset.state = status;
+  DashboardFilters.updateGroupSelections(panel);
 }
 
 function updateMultiButton(key) {
   const button = document.getElementById(`${key}FilterButton`);
   const values = state[key] || [];
+  const visibleValues = values.filter((value) => value !== DashboardFilters.NONE_VALUE);
   if (!button) return;
   const label = button.closest(".multi-select")?.querySelector(".filter-label")?.textContent.trim() || key;
   button.textContent = DashboardFilters.selectionSummary(label, values, filterOptions[key] || []);
-  button.title = values.length > 1 ? values.join("、") : "";
+  button.title = visibleValues.length > 1 ? visibleValues.join("、") : "";
   button.classList.toggle("has-selection", values.length > 0);
 }
 
@@ -949,7 +973,10 @@ function initFilters() {
   const pageFilters = new Set(DashboardPages.get(state.view)?.filters || []);
   if (pageFilters.has("country")) {
     const countries = [...new Set(data.fact.map((row) => row.country || "Unknown"))].sort();
-    setMultiOptions("country", countries, state.country);
+    const countryGroups = countries.length
+      ? DashboardFilters.groupValues(countries, DashboardCountry.regionForCountry, COUNTRY_REGION_ORDER)
+      : [];
+    setMultiOptions("country", countries, state.country, countryGroups);
   }
   if (pageFilters.has("account")) {
     const accounts = accountOptionsForView();
