@@ -6,20 +6,48 @@
   typeof window !== "undefined" ? window : globalThis,
   typeof DashboardMetrics !== "undefined" ? DashboardMetrics : require("../dashboard-metrics.js"),
   function createDashboardProduct(DashboardMetricsApi) {
-    const productSeriesChildren = {
-      "美白系列": [
-        "美白多件套", "美白4件套", "美白3件套", "美白面膜", "美白面霜", "美白防晒", "美白洗面奶",
-        "美白面膜+PDRN面霜套组", "美白面膜+美白面霜套组",
-      ],
-      "PDRN系列": ["PDRN套组", "PDRN美白啫喱片", "PDRN面霜", "PDRN精华", "PDRN次抛精华"],
-      "泥膜棒系列": ["泥膜棒合集", "火山泥膜棒", "艾草泥膜棒", "美白泥膜棒", "PDRN泥膜棒", "亚马逊白泥泥膜棒", "亚马逊白泥固体泥膜"],
-      "水油喷雾系列": ["水油喷雾", "PDRN水油喷雾", "水油喷雾2件套", "水油喷雾合集"],
-      "有色面霜系列": ["有色面霜", "有色面霜2件套", "有色面霜3件套"],
-      "气垫系列": ["水光气垫", "蓝色气垫", "金色气垫", "气垫合集"],
-      "粉饼系列": ["粉饼", "粉饼2件套"],
-    };
-    const productSeriesLookup = new Map(Object.entries(productSeriesChildren)
-      .flatMap(([series, products]) => products.map((product) => [product, series])));
+    const productHierarchy = [
+      {
+        name: "底妆系列",
+        children: [
+          "底妆合集",
+          { name: "气垫系列", children: ["水光气垫", "蓝色气垫", "金色气垫", "气垫合集"] },
+        ],
+      },
+      { name: "防晒系列", children: ["防晒合集", "有色防晒"] },
+      { name: "VC系列", children: ["VC两件套", "VC双舱精华"] },
+      {
+        name: "美白系列",
+        children: [
+          "美白多件套", "美白面膜套装", "美白面膜套组", "美白4件套", "美白3件套", "美白面膜",
+          "美白面霜", "美白防晒", "美白洗面奶", "美白面膜+PDRN面霜套组", "美白面膜+美白面霜套组",
+        ],
+      },
+      { name: "水光肌系列", children: ["水光肌2件套", "水光肌3件套"] },
+      { name: "PDRN系列", children: ["PDRN套组", "PDRN美白啫喱片", "PDRN面霜", "PDRN精华", "PDRN次抛精华"] },
+      { name: "泥膜棒系列", children: ["泥膜棒合集", "火山泥膜棒", "艾草泥膜棒", "美白泥膜棒", "PDRN泥膜棒", "亚马逊白泥泥膜棒", "亚马逊白泥固体泥膜"] },
+      { name: "水油喷雾系列", children: ["水油喷雾", "PDRN水油喷雾", "水油喷雾2件套", "水油喷雾合集"] },
+      { name: "有色面霜系列", children: ["有色面霜", "有色面霜2件套", "有色面霜3件套"] },
+      { name: "粉饼系列", children: ["粉饼", "粉饼2件套"] },
+    ];
+    const productSeriesLookup = new Map();
+    const productPathLookup = new Map();
+
+    function indexProductHierarchy(node, rootSeries, ancestors = []) {
+      if (typeof node === "string") {
+        if (productPathLookup.has(node)) throw new Error(`Duplicate product hierarchy leaf: ${node}`);
+        productSeriesLookup.set(node, rootSeries);
+        productPathLookup.set(node, [...ancestors, node]);
+        return [node];
+      }
+      const path = [...ancestors, node.name];
+      return node.children.flatMap((child) => indexProductHierarchy(child, rootSeries || node.name, path));
+    }
+
+    const productSeriesChildren = Object.fromEntries(productHierarchy.map((node) => [
+      node.name,
+      indexProductHierarchy(node, node.name),
+    ]));
     const segmentDimension = {
       overall: "standard_product_name",
       form: "product_form",
@@ -96,40 +124,106 @@
       }));
     }
 
+    function hierarchyMetricRow(currentRows, previousRows, currentTotal, previousTotal) {
+      const current = DashboardMetricsApi.summarizeRows(currentRows);
+      const previous = DashboardMetricsApi.summarizeRows(previousRows);
+      const spendShare = currentTotal.spend ? current.spend / currentTotal.spend : 0;
+      const salesShare = currentTotal.purchase_value ? current.purchase_value / currentTotal.purchase_value : 0;
+      const previousSpendShare = previousTotal.spend ? previous.spend / previousTotal.spend : 0;
+      const previousSalesShare = previousTotal.purchase_value ? previous.purchase_value / previousTotal.purchase_value : 0;
+      return {
+        ...current,
+        cpm: current.impressions ? (current.spend / current.impressions) * 1000 : 0,
+        spend_share: spendShare,
+        sales_share: salesShare,
+        spend_delta: deltaText(current.spend, previous.spend),
+        sales_delta: deltaText(current.purchase_value, previous.purchase_value),
+        conversion_delta: deltaText(current.purchase_times, previous.purchase_times),
+        roas_delta: deltaText(current.roas, previous.roas),
+        cpa_delta: deltaText(current.cpa, previous.cpa),
+        ctr_delta: deltaText(current.ctr, previous.ctr),
+        cvr_delta: deltaText(current.cvr, previous.cvr),
+        aov_delta: deltaText(current.aov, previous.aov),
+        spend_share_delta: deltaText(spendShare, previousSpendShare),
+        sales_share_delta: deltaText(salesShare, previousSalesShare),
+      };
+    }
+
     function buildProductHierarchy(currentRows, previousRows, expandedSeries = []) {
-      const currentWithSeries = rowsWithProductSeries(currentRows);
-      const previousWithSeries = rowsWithProductSeries(previousRows);
-      const seriesRows = compareRows(currentWithSeries, previousWithSeries, ["product_series"]);
-      const productRows = compareRows(currentRows, previousRows, ["standard_product_name"]);
+      const groupByProduct = (rows) => {
+        const groups = new Map();
+        for (const row of rows || []) {
+          const product = String(row.standard_product_name || row.product_name || "Unknown").trim() || "Unknown";
+          if (!groups.has(product)) groups.set(product, []);
+          groups.get(product).push(row);
+        }
+        return groups;
+      };
+      const currentByProduct = groupByProduct(currentRows);
+      const previousByProduct = groupByProduct(previousRows);
+      const currentTotal = DashboardMetricsApi.summarizeRows(currentRows || []);
+      const previousTotal = DashboardMetricsApi.summarizeRows(previousRows || []);
+      const rowsForLeaves = (groups, leaves) => leaves.flatMap((leaf) => groups.get(leaf) || []);
+      const leavesForNode = (node) => (
+        typeof node === "string"
+          ? [node]
+          : node.children.flatMap((child) => leavesForNode(child))
+      );
       const output = [];
 
-      for (const seriesRow of seriesRows) {
-        const series = seriesRow.product_series;
-        const expandable = Object.hasOwn(productSeriesChildren, series);
-        const expanded = expandable && expandedSeries.includes(series);
-        output.push({
-          ...seriesRow,
-          standard_product_name: series,
-          _depth: 0,
+      function buildNode(node, depth, parentValue = "", rootSeries = "") {
+        const leaves = leavesForNode(node);
+        const nodeCurrentRows = rowsForLeaves(currentByProduct, leaves);
+        if (!nodeCurrentRows.length) return [];
+        const nodePreviousRows = rowsForLeaves(previousByProduct, leaves);
+        const nodeName = typeof node === "string" ? node : node.name;
+        const expandable = typeof node !== "string";
+        const expanded = expandable && expandedSeries.includes(nodeName);
+        const row = {
+          ...hierarchyMetricRow(nodeCurrentRows, nodePreviousRows, currentTotal, previousTotal),
+          standard_product_name: nodeName,
+          product_series: rootSeries || nodeName,
+          _depth: depth,
           _nodeType: expandable ? "product_series" : "product",
-          _nodeValue: series,
+          _nodeValue: nodeName,
+          _parentValue: parentValue,
           _expandable: expandable,
           _expanded: expanded,
-        });
-        if (!expanded) continue;
-        output.push(...productRows
-          .filter((row) => productSeriesForProduct(row.standard_product_name) === series)
-          .map((row) => ({
-            ...row,
-            product_series: series,
-            _depth: 1,
-            _nodeType: "product",
-            _nodeValue: row.standard_product_name,
-            _parentValue: series,
-            _expandable: false,
-            _expanded: false,
-          })));
+        };
+        if (!expanded) return [row];
+        return [
+          row,
+          ...node.children.flatMap((child) => buildNode(child, depth + 1, nodeName, rootSeries || nodeName)),
+        ];
       }
+
+      const rootNodes = productHierarchy
+        .map((node) => ({
+          node,
+          rows: rowsForLeaves(currentByProduct, leavesForNode(node)),
+        }))
+        .filter(({ rows }) => rows.length)
+        .map(({ node, rows }) => ({
+          node,
+          purchaseValue: DashboardMetricsApi.summarizeRows(rows).purchase_value,
+        }));
+      const ungroupedProducts = [...currentByProduct.keys()]
+        .filter((product) => !productPathLookup.has(product))
+        .map((product) => ({
+          node: product,
+          purchaseValue: DashboardMetricsApi.summarizeRows(currentByProduct.get(product)).purchase_value,
+        }));
+
+      [...rootNodes, ...ungroupedProducts]
+        .sort((left, right) => right.purchaseValue - left.purchaseValue || String(
+          typeof left.node === "string" ? left.node : left.node.name,
+        ).localeCompare(String(typeof right.node === "string" ? right.node : right.node.name), "zh-CN"))
+        .forEach(({ node }) => output.push(...buildNode(
+          node,
+          0,
+          "",
+          typeof node === "string" ? node : node.name,
+        )));
       return output;
     }
 
@@ -168,6 +262,7 @@
     return {
       applyFilters,
       buildProductHierarchy,
+      productHierarchy,
       productSeriesChildren,
       productSeriesForProduct,
       segmentDimension,
