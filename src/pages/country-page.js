@@ -148,7 +148,9 @@
         const previousCountryGroups = DashboardMetricsApi.groupRows(previousCountries, ["country"]);
         const previousCountryMap = new Map(previousCountryGroups.map((row) => [row.country, row]));
         output.push(...addComparison(
-          DashboardMetricsApi.groupRows(currentCountries, ["country"]),
+          DashboardMetricsApi.groupRows(currentCountries, ["country"])
+            .sort((left, right) => right.purchase_value - left.purchase_value
+              || String(left.country).localeCompare(String(right.country))),
           previousCountryGroups,
           ["country"],
         ).map((country) => {
