@@ -101,7 +101,7 @@
           <div class="multi-panel" id="productFormFilterPanel"></div>
         </div>
         <div class="multi-select" data-filter="landingType" data-views="landing">
-          <span class="filter-label">落地页类型</span>
+          <span class="filter-label">落地页</span>
           <button type="button" class="multi-trigger" id="landingTypeFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="landingTypeFilterPanel"></div>
         </div>
@@ -370,7 +370,7 @@
           <article class="panel">
             <header>
               <h3>落地页类型对比</h3>
-              <button class="metric-info" type="button" title="从 campaign / adset name 提取" aria-label="落地页类型口径">i</button>
+              <button class="metric-info" type="button" title="只从 Ad set name 提取" aria-label="落地页类型口径">i</button>
             </header>
             <div id="landingTypeDonut" class="donut-card single-donut"></div>
           </article>
@@ -392,17 +392,17 @@
         <article class="panel" data-module="trend">
           <header>
             <h3>落地页类型趋势</h3>
-            <button class="metric-info" type="button" title="按日期观察集合页、详情页、活动页的归因收入变化" aria-label="落地页趋势口径">i</button>
+            <button class="metric-info" type="button" title="按日期观察集合页、活动专题页、Bundle页和单品详情页的归因收入变化" aria-label="落地页趋势口径">i</button>
           </header>
           <div id="landingTypeTrend" class="chart small"></div>
         </article>
         <article class="panel" data-module="structure">
           <header>
-            <h3>落地页类型整体对比</h3>
-            <button class="metric-info" type="button" title="集合页、活动专题页、详情页整体承接效率" aria-label="落地页整体对比口径">i</button>
+            <h3>落地页分析</h3>
+            <button class="metric-info" type="button" title="落地页只来自 Ad set name；分为集合页、活动专题页、Bundle页和单品详情页" aria-label="落地页分析口径">i</button>
           </header>
           <div class="table-wrap compact">
-            <table id="landingTypeTable"></table>
+            <table id="landingPageAnalysisTable"></table>
           </div>
         </article>
         <section class="landing-detail-stack" data-module="detail">
@@ -566,7 +566,7 @@
     <script src="./src/components/page-shell.js?v=20260722-product-source-split"></script>
     <script src="./src/dashboard-ui.js?v=20260720-cockpit"></script>
     <script src="./src/dashboard-state.js?v=20260730-aditya-cocreate"></script>
-    <script src="./src/page-config.js?v=20260730-aditya-cocreate"></script>
+    <script src="./src/page-config.js?v=20260818-landing-adset"></script>
     <script src="./src/render-dispatcher.js?v=20260723-render-dispatcher"></script>
     <script src="./src/pages/country-page.js?v=20260730-aditya-cocreate"></script>
     <script src="./src/pages/creative-page.js?v=20260730-aditya-cocreate"></script>
@@ -575,6 +575,6 @@
     <script src="./src/components/lifecycle-metric-charts.js?v=20260807-lifecycle-evidence"></script>
     <script src="./src/pages/lifecycle-page.js?v=20260807-lifecycle-dashboard"></script>
     <script src="./src/product-filter-options.js?v=20260722-product-source-split"></script>
-    <script src="./src/app.js?v=20260810-region-only"></script>
+    <script src="./src/app.js?v=20260818-landing-adset"></script>
   </body>
 </html>

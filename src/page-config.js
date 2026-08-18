@@ -43,7 +43,7 @@
     },
     landing: {
       title: "落地页",
-      subtitle: "活动专题页、详情页和集合页承接表现",
+      subtitle: "集合页、活动专题页、Bundle页和单品详情页承接表现",
       filters: ["account", "country", "product", "landingType", "operator"],
       segments: [],
       modules,

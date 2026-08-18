@@ -275,9 +275,10 @@ function materialIdentity(row) {
 }
 
 function landingPageType(row) {
-  const text = `${row?.campaign_name || ""} ${row?.adset_name || ""}`.toLowerCase();
-  if (/活动专题页|专题页|campaign page|promo page/.test(text)) return "活动专题页";
-  if (/详情页|商品详情|detail|details|pdp|product page|item page/.test(text)) return "详情页";
+  const text = String(row?.adset_name || "").toLowerCase();
+  if (/活动专题页|专题页|活动页|活动|campaign page|promo page/.test(text)) return "活动专题页";
+  if (/bundle|套组|组合/.test(text)) return "Bundle页";
+  if (/单品|详情页|商品详情|detail|details|pdp|product page|item page/.test(text)) return "单品/详情页";
   return "集合页";
 }
 
@@ -1010,7 +1011,7 @@ function initFilters() {
     setMultiOptions("operator", operators, state.operator);
   }
   if (pageFilters.has("landingType")) {
-    const landingTypes = ["集合页", "活动专题页", "详情页"].filter((value) => data.fact.some((row) => landingPageType(row) === value));
+    const landingTypes = ["集合页", "活动专题页", "Bundle页", "单品/详情页"].filter((value) => (data.ads || []).some((row) => landingPageType(row) === value));
     setMultiOptions("landingType", landingTypes, state.landingType);
   }
   if (pageFilters.has("materialType")) {
@@ -1371,7 +1372,7 @@ function renderKpis(rows, previousRows, context = {}) {
     const previousLandingTypes = new Set(previousLandingRows.map((row) => row.landing_type)).size;
     const topLanding = aggregate(landingRows, ["landing_type"]).sort((a, b) => b.spend - a.spend)[0];
     renderKpiItems([
-      { label: "落地页类型", value: landingTypes, previous: previousLandingTypes, format: number, hint: "集合页/详情页/活动页" },
+      { label: "落地页类型", value: landingTypes, previous: previousLandingTypes, format: number, hint: "集合页/活动专题页/Bundle页/单品详情页" },
       { label: "主要承接", value: topLanding?.landing_type || "-", note: topLanding ? `花费占比 ${pct(summary.spend ? topLanding.spend / summary.spend : 0)}` : "当前周期", format: String, hint: "按花费" },
       { label: "广告花费", value: summary.spend, previous: previous.spend, format: money, hint: "落地页消耗" },
       { label: "归因收入", value: summary.purchase_value, previous: previous.purchase_value, format: money, hint: `${number(summary.purchase_times)} 转化` },
@@ -2209,10 +2210,10 @@ function tableInsight(id, rows, summaryRows = rows) {
       const riskCount = rows.filter((row) => getMetric(row, "spend") > 100 && getMetric(row, "roas") < 1.3).length;
       return `素材明细按花费排序，首位素材花费 ${money(top.spend)}、ROAS ${ratio(top.roas)}。当前有 ${number(riskCount)} 条高花费低 ROAS 素材需复查。`;
     }
-    case "landingTypeTable": {
+    case "landingPageAnalysisTable": {
       const top = topBy("spend");
       const best = [...rows].filter((row) => getMetric(row, "spend") > 100).sort((a, b) => getMetric(b, "roas") - getMetric(a, "roas"))[0];
-      return `落地页类型里，${label(top, ["landing_type"])} 是主要消耗，花费占比 ${pct(top?.spend_share)}。${best ? `${label(best, ["landing_type"])} 效率最好，ROAS ${ratio(best.roas)}。` : ""}`;
+      return `落地页里，${label(top, ["landing_type"])} 是主要消耗，花费占比 ${pct(top?.spend_share)}。${best ? `${label(best, ["landing_type"])} 效率最好，ROAS ${ratio(best.roas)}。` : ""}`;
     }
     case "landingProductTable": {
       const top = topBy("spend");
@@ -4241,11 +4242,10 @@ function renderLandingPage(model) {
     ["landing_type"],
   ).sort((a, b) => b.spend - a.spend);
   renderLandingTypeBars("landingTypeBars", landingTypeComparisonRows);
-  renderCategoryLineChart("landingTypeTrend", aggregate(landingRows, ["date_start", "landing_type"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start))), "landing_type", "purchase_value", { limit: 3 });
-  renderTable("landingTypeTable", landingTypeComparisonRows, [
-    { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
+  renderCategoryLineChart("landingTypeTrend", aggregate(landingRows, ["date_start", "landing_type"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start))), "landing_type", "purchase_value", { limit: 4 });
+  renderTable("landingPageAnalysisTable", landingTypeComparisonRows, [
+    { key: "landing_type", label: "落地页", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
     { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "spend_share", label: "花费占比", value: (row) => row, format: (row) => metricWithDelta(row, "spend_share", pct, "spend_share_delta"), summaryValue: (row) => row.spend_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
     { key: "sales_share", label: "GMV占比", value: (row) => row, format: (row) => metricWithDelta(row, "sales_share", pct, "sales_share_delta"), summaryValue: (row) => row.sales_share || 1, summaryFormat: pct, summaryDelta: false, num: true },
     { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
