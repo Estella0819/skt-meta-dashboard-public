@@ -276,6 +276,16 @@ function materialIdentity(row) {
 
 function landingPageType(row) {
   const text = String(row?.adset_name || "").toLowerCase();
+  const explicitTypes = [
+    ["集合页", /集合页|collection page/g],
+    ["活动专题页", /活动专题页|专题页|活动页|campaign page|promo page/g],
+    ["Bundle页", /bundle页/g],
+    ["单品/详情页", /单品页|详情页|商品详情页|pdp|product page|item page/g],
+  ];
+  const explicitMatch = explicitTypes
+    .flatMap(([type, pattern]) => [...text.matchAll(pattern)].map((match) => ({ type, index: match.index })))
+    .sort((a, b) => b.index - a.index)[0];
+  if (explicitMatch) return explicitMatch.type;
   if (/活动专题页|专题页|活动页|活动|campaign page|promo page/.test(text)) return "活动专题页";
   if (/bundle|套组|组合/.test(text)) return "Bundle页";
   if (/单品|详情页|商品详情|detail|details|pdp|product page|item page/.test(text)) return "单品/详情页";
