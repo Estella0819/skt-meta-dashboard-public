@@ -83,6 +83,26 @@
     return plainText(formatValue(column, raw, row, escapeHtml));
   }
 
+  function comparisonCopyParts(value) {
+    const html = String(value ?? "");
+    const stack = html.match(/<span\b[^>]*class=["'][^"']*\bmetric-stack\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
+    if (!stack) return [plainText(html)];
+    const main = stack[1].match(/<strong\b[^>]*>([\s\S]*?)<\/strong>/i);
+    const comparison = stack[1].match(/<small\b[^>]*>([\s\S]*?)<\/small>/i);
+    if (!main || !comparison) return [plainText(html)];
+    const comparisonText = plainText(comparison[1])
+      .replace(/^环比\s*/u, "")
+      .replace(/\s*环比$/u, "")
+      .trim();
+    return [plainText(main[1]), comparisonText];
+  }
+
+  function copyParts(column, raw, row) {
+    if (column.format) return comparisonCopyParts(formatValue(column, raw, row, escapeHtml));
+    if (column.copyFormat) return [plainText(column.copyFormat(raw, row))];
+    return comparisonCopyParts(formatValue(column, raw, row, escapeHtml));
+  }
+
   function copySummaryValue(column, raw, summary) {
     if (column.summaryFormat) {
       const value = column.summaryFormat.length > 1
@@ -109,16 +129,32 @@
     const sorted = options.sort?.key
       ? sortRows(sourceRows, options.sort.key, options.sort.direction, options.sort.accessor)
       : [...sourceRows];
-    const header = tableColumns
-      .map((column) => plainText(column.copyLabel || column.label))
-      .join("\t");
-    const body = sorted.map((row) => tableColumns.map((column) => {
+    const bodyParts = sorted.map((row) => tableColumns.map((column) => {
       const raw = column.value ? column.value(row) : row[column.key];
-      return copyValue(column, raw, row);
-    }).join("\t"));
-    const summary = options.summaryLine ?? (options.includeSummary
-      ? summaryLine(tableColumns, (options.summarizeRows || defaultSummary)(options.summaryRows || sourceRows))
-      : "");
+      return copyParts(column, raw, row);
+    }));
+    let summaryParts = null;
+    if (Array.isArray(options.summaryCells) && options.summaryCells.length) {
+      summaryParts = options.summaryCells.map(comparisonCopyParts);
+    } else {
+      const summary = options.summaryLine ?? (options.includeSummary
+        ? summaryLine(tableColumns, (options.summarizeRows || defaultSummary)(options.summaryRows || sourceRows))
+        : "");
+      if (summary) summaryParts = summary.split("\t").map((value) => [plainText(value)]);
+    }
+    const expanded = tableColumns.map((_column, index) => (
+      bodyParts.some((row) => row[index]?.length > 1) || (summaryParts?.[index]?.length > 1)
+    ));
+    const header = tableColumns.flatMap((column, index) => {
+      const label = plainText(column.copyLabel || column.label);
+      return expanded[index] ? [label, `${label} 环比`] : [label];
+    }).join("\t");
+    const flatten = (row) => tableColumns.flatMap((_column, index) => {
+      const parts = row[index] || [""];
+      return expanded[index] ? [parts[0] || "", parts[1] || ""] : [parts[0] || ""];
+    }).join("\t");
+    const body = bodyParts.map(flatten);
+    const summary = summaryParts ? flatten(summaryParts) : "";
     return [header, ...body, summary].filter(Boolean).join("\n");
   }
 
@@ -452,7 +488,7 @@
       dimensionFilters: new Map(),
       viewportHeight: 0,
       copyText: toTsv(sortedRows, tableColumns, {
-        summaryLine: summaryCells.map((cell) => plainText(cell)).join("\t"),
+        summaryCells,
       }),
     };
     bindings.set(element, binding);
