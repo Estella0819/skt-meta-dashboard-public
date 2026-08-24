@@ -85,10 +85,11 @@
 
   function comparisonCopyParts(value) {
     const html = String(value ?? "");
-    const stack = html.match(/<span\b[^>]*class=["'][^"']*\bmetric-stack\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
-    if (!stack) return [plainText(html)];
-    const main = stack[1].match(/<strong\b[^>]*>([\s\S]*?)<\/strong>/i);
-    const comparison = stack[1].match(/<small\b[^>]*>([\s\S]*?)<\/small>/i);
+    if (!/<span\b[^>]*class=["'][^"']*\bmetric-stack\b[^"']*["'][^>]*>/i.test(html)) {
+      return [plainText(html)];
+    }
+    const main = html.match(/<strong\b[^>]*>([\s\S]*?)<\/strong>/i);
+    const comparison = html.match(/<small\b[^>]*>([\s\S]*?)<\/small>/i);
     if (!main || !comparison) return [plainText(html)];
     const rawComparisonText = plainText(comparison[1]);
     const leadingLabel = rawComparisonText.match(/^(同比|环比)\s*/u);
