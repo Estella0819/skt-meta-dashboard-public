@@ -513,7 +513,8 @@ function deriveMetrics(row) {
 }
 
 function passesCommonFilters(row, options = {}) {
-  const pageFilters = DashboardPages.get(state.view)?.filters || [];
+  const page = DashboardPages.get(state.view) || {};
+  const pageFilters = page.dataFilters || page.filters || [];
   if (pageFilters.includes("country") && !options.ignoreCountry && state.country.length && !state.country.includes(row.country)) return false;
   if (pageFilters.includes("account") && state.account.length && !state.account.includes(row.account_name)) return false;
   if (pageFilters.includes("product") && state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
@@ -574,22 +575,35 @@ function viewUsesMetaOnlyAds() {
   return ["product", "country", "creative"].includes(state.view);
 }
 
-function pageFactRows(source = data.fact) {
+function metaAnalysisNeedsCreativeRows(view = state.view) {
+  if (!["overview", "product", "country", "creative", "landing"].includes(view)) return false;
+  if (["creative", "landing"].includes(view)) return true;
+  return ["landingType", "materialName", "adName", "lifecycleCreativeId"]
+    .some((key) => Array.isArray(state[key]) && state[key].length > 0);
+}
+
+function metaAnalysisSource(view = state.view) {
+  return metaAnalysisNeedsCreativeRows(view) && Array.isArray(data.ads) && data.ads.length
+    ? data.ads
+    : data.fact;
+}
+
+function pageFactRows(source = metaAnalysisSource()) {
   const rows = filteredRows(source);
   return viewUsesMetaOnlyAds() ? rows.filter(isMetaAdRow) : rows;
 }
 
-function pageComparisonRows(source = data.fact) {
+function pageComparisonRows(source = metaAnalysisSource()) {
   const rows = comparisonRows(source);
   return viewUsesMetaOnlyAds() ? rows.filter(isMetaAdRow) : rows;
 }
 
-function countryPageModel() {
+function countryPageModel(source = metaAnalysisSource()) {
   const ignoreCountry = state.countryRegion !== "ALL";
-  const current = rowsForWindow(data.fact, state.startDate, state.endDate, { ignoreCountry }).filter(isMetaAdRow);
+  const current = rowsForWindow(source, state.startDate, state.endDate, { ignoreCountry }).filter(isMetaAdRow);
   const period = comparisonWindow();
   const previous = period.start && period.end
-    ? rowsForWindow(data.fact, period.start, period.end, { ignoreCountry }).filter(isMetaAdRow)
+    ? rowsForWindow(source, period.start, period.end, { ignoreCountry }).filter(isMetaAdRow)
     : [];
   return {
     ...DashboardCountry.selectModel(current, previous, {}, state.countryRegion),
@@ -4139,46 +4153,47 @@ function normalizedAdRows(rows) {
 }
 
 function buildOverviewRenderModel() {
-  const fact = pageFactRows(data.fact);
-  const previousFact = pageComparisonRows(data.fact);
-  const overviewMaterialRows = filteredRows(data.overview_material_daily || []);
+  const source = metaAnalysisSource("overview");
+  const fact = pageFactRows(source);
+  const previousFact = pageComparisonRows(source);
+  const overviewMaterialRows = source === data.ads
+    ? normalizedAdRows(fact)
+    : filteredRows(data.overview_material_daily || []);
   return { fact, previousFact, overviewMaterialRows };
 }
 
 function buildProductRenderModel() {
-  const fact = pageFactRows(data.fact);
-  const previousFact = pageComparisonRows(data.fact);
+  const source = metaAnalysisSource("product");
+  const fact = pageFactRows(source);
+  const previousFact = pageComparisonRows(source);
   const productModel = productPageModel(fact, previousFact, fact, previousFact);
   return { fact, previousFact, productModel };
 }
 
 function buildCountryRenderModel() {
+  const source = metaAnalysisSource("country");
   return {
-    fact: pageFactRows(data.fact),
-    previousFact: pageComparisonRows(data.fact),
-    countryModel: countryPageModel(),
+    fact: pageFactRows(source),
+    previousFact: pageComparisonRows(source),
+    countryModel: countryPageModel(source),
   };
 }
 
 function buildCreativeRenderModel() {
-  const fact = pageFactRows(data.fact);
-  const previousFact = pageComparisonRows(data.fact);
   assertAdsAccountContract(data.ads || []);
   const adRows = normalizedAdRows(filteredRows(data.ads || []));
   const previousAdRows = normalizedAdRows(comparisonRows(data.ads || []));
   const creativeModel = creativePageModel(adRows, previousAdRows);
-  return { fact, previousFact, creativeModel };
+  return { fact: adRows, previousFact: previousAdRows, creativeModel };
 }
 
 function buildLandingRenderModel() {
-  const fact = pageFactRows(data.fact);
-  const previousFact = pageComparisonRows(data.fact);
   assertAdsAccountContract(data.ads || []);
   const adRows = normalizedAdRows(filteredRows(data.ads || []));
   const previousAdRows = normalizedAdRows(comparisonRows(data.ads || []));
   const landingRows = adRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
   const previousLandingRows = previousAdRows.map((row) => ({ ...row, landing_type: landingPageType(row) }));
-  return { fact, previousFact, landingRows, previousLandingRows };
+  return { fact: landingRows, previousFact: previousLandingRows, landingRows, previousLandingRows };
 }
 
 function buildAttributionRenderModel() {
@@ -4682,7 +4697,8 @@ function measureDashboardPhase(view, phase, callback) {
 function measuredPageRenderer(view, buildModel, commit) {
   return async (context) => {
     const renderRequest = context.renderRequest;
-    await measureDashboardPhase(view, "load", () => DashboardDataLoader.ensure(view));
+    const additionalPartitions = metaAnalysisNeedsCreativeRows(view) ? ["creative"] : [];
+    await measureDashboardPhase(view, "load", () => DashboardDataLoader.ensure(view, { additionalPartitions }));
     if (!isCurrentRenderRequest(renderRequest) || state.view !== renderRequest.originView) return undefined;
     enrichLoadedDashboardData();
     initFilters();
@@ -5065,7 +5081,10 @@ function bindEvents() {
   });
   document.getElementById("trendMetric").addEventListener("change", (event) => {
     state.trendMetric = event.target.value;
-    requestRender(() => renderOverviewTrend(pageFactRows(data.fact)), { historyMode: "" });
+    requestRender(
+      () => renderOverviewTrend(pageFactRows(metaAnalysisSource("overview"))),
+      { historyMode: "" },
+    );
   });
   document.getElementById("attributionTrendMetric").addEventListener("change", (event) => {
     state.attributionMetric = event.target.value;

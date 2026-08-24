@@ -123,14 +123,20 @@
     return promise;
   }
 
-  function ensure(view) {
+  function ensure(view, options = {}) {
     const partition = partitionForView(view);
-    if (partition === "core") return Promise.resolve(root.META_DASHBOARD_DATA);
+    const requestedPartitions = [...new Set([
+      partition,
+      ...(options.additionalPartitions || []),
+    ])].filter((item) => item && item !== "core");
+    if (!requestedPartitions.length) return Promise.resolve(root.META_DASHBOARD_DATA);
     showState(view, "loading", "正在加载当前页面数据...");
-    return loadPartition(partition)
-      .then((payload) => {
+    return Promise.all(requestedPartitions.map(loadPartition))
+      .then((payloads) => {
         clearState(view);
-        return payload;
+        return partition === "lifecycle"
+          ? payloads[requestedPartitions.indexOf("lifecycle")]
+          : root.META_DASHBOARD_DATA;
       })
       .catch((error) => {
         showState(view, "error", error?.message || "当前页面数据加载失败");
