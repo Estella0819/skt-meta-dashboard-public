@@ -12,6 +12,8 @@
         children: [
           "底妆合集",
           { name: "气垫系列", children: ["水光气垫", "蓝色气垫", "金色气垫", "气垫合集"] },
+          { name: "粉饼系列", children: ["粉饼", "粉饼2件套"] },
+          { name: "有色面霜系列", children: ["有色面霜", "有色面霜2件套", "有色面霜3件套"] },
         ],
       },
       { name: "防晒系列", children: ["防晒合集", "有色防晒"] },
@@ -27,8 +29,6 @@
       { name: "PDRN系列", children: ["PDRN套组", "PDRN美白啫喱片", "PDRN面霜", "PDRN精华", "PDRN次抛精华"] },
       { name: "泥膜棒系列", children: ["泥膜棒合集", "火山泥膜棒", "艾草泥膜棒", "美白泥膜棒", "PDRN泥膜棒", "亚马逊白泥泥膜棒", "亚马逊白泥固体泥膜"] },
       { name: "水油喷雾系列", children: ["水油喷雾", "PDRN水油喷雾", "水油喷雾2件套", "水油喷雾合集"] },
-      { name: "有色面霜系列", children: ["有色面霜", "有色面霜2件套", "有色面霜3件套"] },
-      { name: "粉饼系列", children: ["粉饼", "粉饼2件套"] },
     ];
     const productSeriesLookup = new Map();
     const productPathLookup = new Map();
