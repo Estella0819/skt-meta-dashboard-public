@@ -138,6 +138,15 @@ const DashboardCharts = ((DashboardMetricsApi) => {
     return element;
   };
 
+  const smoothPath = (points) => {
+    if (!points.length) return "";
+    return points.slice(1).reduce((path, point, index) => {
+      const previous = points[index];
+      const controlOffset = (point.x - previous.x) * 0.42;
+      return `${path} C${previous.x + controlOffset} ${previous.y},${point.x - controlOffset} ${point.y},${point.x} ${point.y}`;
+    }, `M${points[0].x} ${points[0].y}`);
+  };
+
   const formatMoney = (value) => new Intl.NumberFormat("zh-CN", {
     style: "currency",
     currency: "USD",
@@ -231,9 +240,9 @@ const DashboardCharts = ((DashboardMetricsApi) => {
     controls.append(trigger, panel);
     element.append(controls);
 
-    const width = Math.max(640, Math.round(number(element.getBoundingClientRect().width)));
-    const height = 300;
-    const padding = { top: 18, right: 22, bottom: 32, left: 54 };
+    const width = Math.max(320, Math.round(number(element.getBoundingClientRect().width)));
+    const height = 330;
+    const padding = { top: 18, right: 24, bottom: 40, left: 62 };
     const svg = createSvg("svg", {
       viewBox: `0 0 ${width} ${height}`,
       role: "img",
@@ -259,7 +268,7 @@ const DashboardCharts = ((DashboardMetricsApi) => {
       const x = (index) => padding.left + (model.dates.length < 2 ? plotWidth / 2 : (index / (model.dates.length - 1)) * plotWidth);
       const y = (value) => padding.top + plotHeight - ((value / maximum) * plotHeight);
 
-      [0, 0.5, 1].forEach((step) => {
+      [0, 0.25, 0.5, 0.75, 1].forEach((step) => {
         const guideY = padding.top + plotHeight - (plotHeight * step);
         plot.append(createSvg("line", { x1: padding.left, y1: guideY, x2: width - padding.right, y2: guideY, class: "interactive-chart-guide" }));
         const label = createSvg("text", { x: padding.left - 8, y: guideY + 4, "text-anchor": "end", class: "interactive-chart-axis-label" });
@@ -281,8 +290,9 @@ const DashboardCharts = ((DashboardMetricsApi) => {
       displayed.forEach((name) => {
         const series = seriesByName.get(name);
         const color = PALETTE[model.categories.indexOf(name) % PALETTE.length];
+        const points = series.points.map((point, index) => ({ x: x(index), y: y(point.gmv) }));
         const path = createSvg("path", {
-          d: series.points.map((point, index) => `${index ? "L" : "M"}${x(index)} ${y(point.gmv)}`).join(" "),
+          d: smoothPath(points),
           class: "interactive-series-line",
           stroke: color,
         });
@@ -302,9 +312,12 @@ const DashboardCharts = ((DashboardMetricsApi) => {
         });
       });
 
+      const maxDateTicks = Math.max(2, Math.floor(plotWidth / 72));
+      const dateTickStep = Math.max(1, Math.ceil(Math.max(model.dates.length - 1, 1) / Math.max(maxDateTicks - 1, 1)));
       model.dates.forEach((date, index) => {
+        if (index !== 0 && index !== model.dates.length - 1 && index % dateTickStep !== 0) return;
         const label = createSvg("text", { x: x(index), y: height - 10, "text-anchor": "middle", class: "interactive-chart-axis-label" });
-        label.textContent = date;
+        label.textContent = String(date).slice(5);
         plot.append(label);
       });
     };
@@ -390,7 +403,7 @@ const DashboardCharts = ((DashboardMetricsApi) => {
       return;
     }
     const svg = createSvg("svg", {
-      viewBox: "0 0 300 300",
+      viewBox: "0 0 260 260",
       role: "img",
       "aria-label": options.ariaLabel || "GMV 系列结构",
     });
@@ -400,12 +413,12 @@ const DashboardCharts = ((DashboardMetricsApi) => {
     visual.className = "interactive-donut-visual";
     const legend = document.createElement("div");
     legend.className = "interactive-donut-legend";
-    const center = 150;
+    const center = 130;
     let angle = -Math.PI / 2;
     model.slices.forEach((slice, index) => {
       const nextAngle = angle + (Math.PI * 2 * slice.share);
       const arc = createSvg("path", {
-        d: ringPath(center, 112, 72, angle, nextAngle),
+        d: ringPath(center, 108, 70, angle, nextAngle),
         fill: PALETTE[index % PALETTE.length],
         class: "interactive-donut-slice",
         tabindex: "0",

@@ -1515,6 +1515,15 @@ function responsiveTickStep(itemCount, width, pad) {
   return Math.max(1, Math.ceil(Math.max(itemCount - 1, 1) / Math.max(maxTicks - 1, 1)));
 }
 
+function smoothSvgPath(points) {
+  if (!points.length) return "";
+  return points.slice(1).reduce((path, point, index) => {
+    const previous = points[index];
+    const controlOffset = (point.x - previous.x) * 0.42;
+    return `${path} C${previous.x + controlOffset} ${previous.y},${point.x - controlOffset} ${point.y},${point.x} ${point.y}`;
+  }, `M${points[0].x} ${points[0].y}`);
+}
+
 function renderLineChart(id, rows, metric) {
   const el = document.getElementById(id);
   if (!rows.length) {
@@ -1529,7 +1538,9 @@ function renderLineChart(id, rows, metric) {
   const min = metric === "roas" ? Math.min(...values, 0) : 0;
   const x = (index) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(rows.length - 1, 1);
   const y = (value) => height - pad.bottom - ((value - min) * (height - pad.top - pad.bottom)) / Math.max(max - min, 1);
-  const points = rows.map((row, index) => `${x(index)},${y(Number(row[metric] || 0))}`).join(" ");
+  const chartPoints = rows.map((row, index) => ({ x: x(index), y: y(Number(row[metric] || 0)) }));
+  const points = chartPoints.map((point) => `${point.x},${point.y}`).join(" ");
+  const path = smoothSvgPath(chartPoints);
   const area = `${pad.left},${height - pad.bottom} ${points} ${x(rows.length - 1)},${height - pad.bottom}`;
   const grid = [0, 0.25, 0.5, 0.75, 1].map((step) => {
     const yy = pad.top + step * (height - pad.top - pad.bottom);
@@ -1540,7 +1551,7 @@ function renderLineChart(id, rows, metric) {
   const tickStep = responsiveTickStep(rows.length, width, pad);
   const ticks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0).map((row) => {
     const originalIndex = rows.indexOf(row);
-    return `<text class="x-tick" x="${x(originalIndex)}" y="${height - 18}" text-anchor="end" transform="rotate(-35 ${x(originalIndex)} ${height - 18})">${row.date_start.slice(5)}</text>`;
+    return `<text class="x-tick" x="${x(originalIndex)}" y="${height - 16}" text-anchor="middle">${row.date_start.slice(5)}</text>`;
   }).join("");
   const hoverPoints = rows.map((row, index) => {
     const value = Number(row[metric] || 0);
@@ -1565,7 +1576,7 @@ function renderLineChart(id, rows, metric) {
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metricLabels[metric]}趋势">
       <g class="axis">${grid}${ticks}</g>
       <polygon class="area" points="${area}"></polygon>
-      <polyline class="line" points="${points}"></polyline>
+      <path class="line" d="${path}"></path>
       ${hoverPoints}
     </svg>
   `;
@@ -1650,14 +1661,13 @@ function renderChannelLineChart(id, rows) {
   const tickStep = responsiveTickStep(dates.length, width, pad);
   const ticks = dates.filter((_, index) => index === 0 || index === dates.length - 1 || index % tickStep === 0).map((date) => {
     const index = dates.indexOf(date);
-    return `<text class="x-tick" x="${x(index)}" y="${height - 28}" text-anchor="end" transform="rotate(-35 ${x(index)} ${height - 28})">${date.slice(5)}</text>`;
+    return `<text class="x-tick" x="${x(index)}" y="${height - 24}" text-anchor="middle">${date.slice(5)}</text>`;
   }).join("");
   const lines = series.map((line) => {
     const points = line.values
       .filter((point) => point.value !== null)
-      .map((point) => `${x(dates.indexOf(point.date_start))},${y(point.value)}`)
-      .join(" ");
-    return `<polyline class="line" style="stroke:${colors[line.channel]}" points="${points}"></polyline>`;
+      .map((point) => ({ x: x(dates.indexOf(point.date_start)), y: y(point.value) }));
+    return `<path class="line" style="stroke:${colors[line.channel]}" d="${smoothSvgPath(points)}"></path>`;
   }).join("");
   const hoverPoints = dates.map((date, index) => {
     const values = channels.map((channel) => ({
@@ -2009,7 +2019,7 @@ function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
   const tickStep = responsiveTickStep(dates.length, width, pad);
   const ticks = dates.filter((_, index) => index === 0 || index === dates.length - 1 || index % tickStep === 0).map((date) => {
     const index = dates.indexOf(date);
-    return `<text class="x-tick" x="${x(index)}" y="${height - 20}" text-anchor="end" transform="rotate(-35 ${x(index)} ${height - 20})">${date.slice(5)}</text>`;
+    return `<text class="x-tick" x="${x(index)}" y="${height - 16}" text-anchor="middle">${date.slice(5)}</text>`;
   }).join("");
   const grid = [0, 0.25, 0.5, 0.75, 1].map((step) => {
     const yy = pad.top + step * (height - pad.top - pad.bottom);
@@ -2019,7 +2029,7 @@ function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
     const pointValues = dates.map((date, index) => {
       const row = byKey.get(`${date}||${category}`);
       if (options.missingAsGap && (!row || row[metric] === null || row[metric] === undefined)) return null;
-      return `${x(index)},${y(getMetric(row || {}, metric))}`;
+      return { x: x(index), y: y(getMetric(row || {}, metric)) };
     });
     const runs = options.missingAsGap
       ? pointValues.reduce((groups, point) => {
@@ -2031,7 +2041,7 @@ function renderCategoryLineChart(id, rows, categoryKey, metric, options = {}) {
         return groups;
       }, [[]]).filter((group) => group.length)
       : [pointValues];
-    return runs.map((points) => `<polyline class="line" style="stroke:${palette[lineIndex % palette.length]}" points="${points.join(" ")}"></polyline>`).join("");
+    return runs.map((points) => `<path class="line" style="stroke:${palette[lineIndex % palette.length]}" d="${smoothSvgPath(points)}"></path>`).join("");
   }).join("");
   el.innerHTML = `
     <div class="dual-legend">
