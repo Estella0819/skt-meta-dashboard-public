@@ -2114,6 +2114,11 @@ function renderTable(id, rows, columns, limit = 80, options = {}) {
     limit,
     visibleRowCount: 10,
     renderBuffer: 20,
+    comparisonLabel: state.compareMode === "lastMonth"
+      ? "同比"
+      : state.compareMode === "previous"
+        ? "环比"
+        : "对比",
     summaryRows,
     ...(Object.hasOwn(options, "summaryData") ? { summaryData: options.summaryData } : {}),
     ...(Object.hasOwn(options, "previousSummaryData") ? { previousSummaryData: options.previousSummaryData } : {}),

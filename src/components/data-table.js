@@ -90,11 +90,17 @@
     const main = stack[1].match(/<strong\b[^>]*>([\s\S]*?)<\/strong>/i);
     const comparison = stack[1].match(/<small\b[^>]*>([\s\S]*?)<\/small>/i);
     if (!main || !comparison) return [plainText(html)];
-    const comparisonText = plainText(comparison[1])
-      .replace(/^环比\s*/u, "")
-      .replace(/\s*环比$/u, "")
+    const rawComparisonText = plainText(comparison[1]);
+    const leadingLabel = rawComparisonText.match(/^(同比|环比)\s*/u);
+    const trailingLabel = rawComparisonText.match(/\s*(同比|环比)$/u);
+    const comparisonLabel = leadingLabel?.[1] || trailingLabel?.[1] || "";
+    const comparisonText = rawComparisonText
+      .replace(/^(同比|环比)\s*/u, "")
+      .replace(/\s*(同比|环比)$/u, "")
       .trim();
-    return [plainText(main[1]), comparisonText];
+    const parts = [plainText(main[1]), comparisonText];
+    parts.comparisonLabel = comparisonLabel;
+    return parts;
   }
 
   function copyParts(column, raw, row) {
@@ -145,9 +151,15 @@
     const expanded = tableColumns.map((_column, index) => (
       bodyParts.some((row) => row[index]?.length > 1) || (summaryParts?.[index]?.length > 1)
     ));
+    const comparisonLabels = tableColumns.map((_column, index) => (
+      options.comparisonLabel
+      || bodyParts.map((row) => row[index]?.comparisonLabel).find(Boolean)
+      || summaryParts?.[index]?.comparisonLabel
+      || "环比"
+    ));
     const header = tableColumns.flatMap((column, index) => {
       const label = plainText(column.copyLabel || column.label);
-      return expanded[index] ? [label, `${label} 环比`] : [label];
+      return expanded[index] ? [label, `${label} ${comparisonLabels[index]}`] : [label];
     }).join("\t");
     const flatten = (row) => tableColumns.flatMap((_column, index) => {
       const parts = row[index] || [""];
@@ -489,6 +501,7 @@
       viewportHeight: 0,
       copyText: toTsv(sortedRows, tableColumns, {
         summaryCells,
+        comparisonLabel: options.comparisonLabel,
       }),
     };
     bindings.set(element, binding);
