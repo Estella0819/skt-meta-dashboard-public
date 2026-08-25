@@ -26,6 +26,8 @@ const state = {
   productTrendSelection: [],
   productTrendSelectionInitialized: false,
   creativeSegment: "type",
+  creativeViewMode: "overall",
+  allChannelsMode: "attribution",
   startDate: "",
   endDate: "",
   country: [],
@@ -72,6 +74,8 @@ const state = {
     market: { key: "spend", direction: "desc" },
   },
 };
+
+let currentCreativeDecisionModel = null;
 
 const filterOptions = {};
 const allFilterKeys = DashboardPages.filterKeys();
@@ -321,14 +325,22 @@ function escapeJsString(value) {
   return String(value ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, " ");
 }
 
+function isChannelSalesMode() {
+  return state.view === "allChannels" && state.allChannelsMode === "sales";
+}
+
+function isAttributionMode() {
+  return state.view === "allChannels" && state.allChannelsMode === "attribution";
+}
+
 function filterControlId(key) {
-  if (state.view === "channels" && (key === "product_name" || key === "standard_product_name")) {
+  if (isChannelSalesMode() && (key === "product_name" || key === "standard_product_name")) {
     return "channelProduct";
   }
   return {
     country: "country",
-    product_name: state.view === "channels" ? "channelProduct" : "product",
-    standard_product_name: state.view === "channels" ? "channelProduct" : "product",
+    product_name: isChannelSalesMode() ? "channelProduct" : "product",
+    standard_product_name: isChannelSalesMode() ? "channelProduct" : "product",
     product_form: "productForm",
     operator: "operator",
     account_name: "account",
@@ -358,7 +370,7 @@ function filterHref(key, value, relatedFilters = []) {
     }
     if (filterKey === "account_name") nextState.account = [filterValue];
     if (filterKey === "product_name" || filterKey === "standard_product_name") {
-      nextState[state.view === "channels" ? "channelProduct" : "product"] = [filterValue];
+      nextState[isChannelSalesMode() ? "channelProduct" : "product"] = [filterValue];
     }
     if (filterKey === "product_form") nextState.productForm = [filterValue];
     if (filterKey === "channel") nextState.channel = [filterValue];
@@ -1122,7 +1134,7 @@ function insightTone(value, inverse = false) {
 
 function renderActionInsights(fact, previousFact, context = {}) {
   let cards = [];
-  if (state.view === "channels") {
+  if (isChannelSalesMode()) {
     const channelModel = context.channelModel;
     const channelSummary = channelModel.summary.reduce((summary, row) => ({
       channel_sales: summary.channel_sales + getMetric(row, "channel_sales"),
@@ -1406,7 +1418,7 @@ function renderKpis(rows, previousRows, context = {}) {
     return;
   }
 
-  if (state.view === "channels") {
+  if (isChannelSalesMode()) {
     const channelModel = context.channelModel;
     const byChannel = new Map(channelModel.summary.map((row) => [row.channel, row]));
     const previousByChannel = new Map(channelModel.previousSummary.map((row) => [row.channel, row]));
@@ -1455,7 +1467,7 @@ function renderComparison(currentRows, previousRows) {
 }
 
 function renderInsightSummary(fact, previousFact, context = {}) {
-  if (state.view === "channels") {
+  if (isChannelSalesMode()) {
     const channelProducts = context.channelModel.allChannelProducts;
     const topSalesProduct = [...channelProducts].sort((a, b) => b.channel_sales - a.channel_sales)[0];
     const topUnitsProduct = channelProducts[0];
@@ -2444,8 +2456,8 @@ function applyContentFilter(key, value) {
   }
   const mapping = {
     country: "country",
-    product_name: state.view === "channels" ? "channelProduct" : "product",
-    standard_product_name: state.view === "channels" ? "channelProduct" : "product",
+    product_name: isChannelSalesMode() ? "channelProduct" : "product",
+    standard_product_name: isChannelSalesMode() ? "channelProduct" : "product",
     product_form: "productForm",
     channel: "channel",
     operator: "operator",
@@ -2471,8 +2483,8 @@ function applyContentFilter(key, value) {
 function applyFilterEntries(filters) {
   const mapping = {
     country: "country",
-    product_name: state.view === "channels" ? "channelProduct" : "product",
-    standard_product_name: state.view === "channels" ? "channelProduct" : "product",
+    product_name: isChannelSalesMode() ? "channelProduct" : "product",
+    standard_product_name: isChannelSalesMode() ? "channelProduct" : "product",
     product_form: "productForm",
     channel: "channel",
     operator: "operator",
@@ -3212,7 +3224,7 @@ function attributionChannelOptions() {
 }
 
 function channelOptionsForView() {
-  if (state.view === "attribution") return attributionChannelOptions();
+  if (isAttributionMode()) return attributionChannelOptions();
   return [...new Set((data.channel_market_product_daily || []).map((row) => row.channel || "Unknown"))].sort();
 }
 
@@ -4032,7 +4044,131 @@ function renderCreativeHierarchy(creativeModel) {
   });
 }
 
+function creativeDecisionLabel(decision) {
+  return ({ scale: "可扩量", potential: "待验证", fatigue: "疲劳预警", pause: "停投候选", remake: "建议重做", observe: "持续观察" })[decision] || "持续观察";
+}
+
+function creativeTrendLabel(trend = {}) {
+  if (!Number.isFinite(trend.roas_change)) return "暂无可比趋势";
+  return `ROAS ${trend.roas_change >= 0 ? "+" : ""}${pct(trend.roas_change)}`;
+}
+
+function creativeThumbnail(row) {
+  const thumbnail = row.asset?.thumbnail_path;
+  if (!thumbnail) return '<div class="creative-thumbnail-placeholder">未匹配缩略图</div>';
+  return `<img class="creative-thumbnail" src="${escapeHtml(thumbnail)}" alt="${escapeHtml(row.material_id)} 素材缩略图" loading="lazy">`;
+}
+
+function creativeDecisionCard(row) {
+  const evidence = row.evidence_status === "sufficient" ? "证据充分" : "样本不足";
+  const benchmark = row.benchmark_status === "formal"
+    ? `正式基准 · ${row.peer_group_size} 条`
+    : row.benchmark_status === "directional" ? `方向性基准 · ${row.peer_group_size} 条` : "同组样本不足";
+  return `
+    <button type="button" class="creative-decision-card" data-creative-decision-id="${escapeHtml(row.creative_key)}">
+      ${creativeThumbnail(row)}
+      <span class="creative-card-body">
+        <span class="creative-card-title">${escapeHtml(row.material_id)}</span>
+        <span class="creative-card-context">${escapeHtml(row.country)} · ${escapeHtml(row.standard_product_name)} · ${escapeHtml(row.material_type)}</span>
+        <span class="creative-card-metrics">
+          <span>花费 <strong>${money(row.spend)}</strong></span><span>GMV <strong>${money(row.purchase_value)}</strong></span>
+          <span>订单 <strong>${number(row.purchase_times)}</strong></span><span>ROAS <strong>${ratio(row.roas)}</strong></span>
+          <span>CPA <strong>${row.cpa === null ? "-" : money(row.cpa)}</strong></span><span>AOV <strong>${row.aov === null ? "-" : money(row.aov)}</strong></span>
+        </span>
+        <span class="creative-card-footer"><span>${evidence}</span><span>${benchmark}</span><span>${creativeTrendLabel(row.trend)}</span></span>
+      </span>
+    </button>`;
+}
+
+function renderCreativeDecisionLists(model) {
+  [["creativeScaleList", "scale"], ["creativePotentialList", "potential"], ["creativeFatigueList", "fatigue"], ["creativePauseList", "pause"]]
+    .forEach(([id, decision]) => {
+      const rows = (model.lists[decision] || []).slice(0, 10);
+      document.getElementById(id).innerHTML = rows.length
+        ? rows.map(creativeDecisionCard).join("")
+        : '<p class="creative-empty-state">当前筛选范围暂无符合条件的素材</p>';
+    });
+  const audit = model.match_audit;
+  document.getElementById("creativeDecisionAudit").innerHTML = `
+    <strong>决策样本 ${number(audit.total_creatives)} 条</strong>
+    <span>正式基准仅在同国家、同产品、同媒介内至少 8 条有效素材时启用</span>
+    <span>缩略图匹配 ${number(audit.matched_assets)}/${number(audit.total_creatives)}</span>`;
+}
+
+function contentInsightColumns(isVideo) {
+  const dimensions = [
+    { key: "content_direction_l1", label: "内容方向" },
+    { key: "content_direction_l2", label: "内容细分" },
+    { key: "proof_type", label: "证明方式" },
+  ];
+  if (isVideo) dimensions.push({ key: "hook_type", label: "Hook" }, { key: "script_structure", label: "脚本结构" });
+  return [
+    ...dimensions,
+    { key: "creative_count", label: "素材数", format: number, num: true },
+    { key: "spend", label: "花费", format: money, num: true },
+    { key: "purchase_value", label: "GMV", format: money, num: true },
+    { key: "purchase_times", label: "订单", format: number, num: true },
+    { key: "roas", label: "ROAS", format: ratio, num: true },
+    { key: "cpa", label: "CPA", format: (value) => value === null ? "-" : money(value), num: true },
+    { key: "ctr", label: "CTR", format: pct, num: true },
+    { key: "cvr", label: "CVR", format: pct, num: true },
+    { key: "aov", label: "AOV", format: (value) => value === null ? "-" : money(value), num: true },
+    { key: "conclusion_status", label: "结论强度", format: (value) => value === "supported" ? "可形成方向结论" : "仅作案例展示" },
+  ];
+}
+
+function renderCreativeContentInsights(model) {
+  renderTable("creativeImageContentTable", model.content_insights.filter((row) => row.media_type !== "video"), contentInsightColumns(false), Number.POSITIVE_INFINITY);
+  renderTable("creativeVideoContentTable", model.content_insights.filter((row) => row.media_type === "video"), contentInsightColumns(true), Number.POSITIVE_INFINITY);
+  const audit = model.match_audit;
+  document.getElementById("creativeContentAudit").innerHTML = `
+    <strong>内容标注 ${number(audit.matched_tags)}/${number(audit.total_creatives)}</strong>
+    <span>未查看原素材的 ${number(audit.unmatched_tags)} 条记录不参与内容方向结论</span>
+    <span>每个内容方向至少 3 条素材才标记为“可形成方向结论”</span>`;
+}
+
+function renderCreativeDecisionDetail(creativeKey) {
+  const row = currentCreativeDecisionModel?.creatives.find((item) => item.creative_key === creativeKey);
+  if (!row) return;
+  const detail = document.getElementById("creativeDecisionDetail");
+  document.getElementById("creativeDecisionDetailBody").innerHTML = `
+    <div class="creative-detail-media">${creativeThumbnail(row)}</div>
+    <h4>${escapeHtml(row.material_id)}</h4>
+    <p>${escapeHtml(row.country)} · ${escapeHtml(row.standard_product_name)} · ${escapeHtml(row.material_type)}</p>
+    <dl class="creative-detail-metrics">
+      <div><dt>建议动作</dt><dd>${creativeDecisionLabel(row.decision)}</dd></div>
+      <div><dt>样本状态</dt><dd>${row.evidence_status === "sufficient" ? "充分" : "不足"}</dd></div>
+      <div><dt>同组有效素材</dt><dd>${number(row.peer_group_size)}</dd></div>
+      <div><dt>ROAS / CPA</dt><dd>${ratio(row.roas)} / ${row.cpa === null ? "-" : money(row.cpa)}</dd></div>
+      <div><dt>CTR / CVR</dt><dd>${pct(row.ctr)} / ${pct(row.cvr)}</dd></div>
+      <div><dt>AOV</dt><dd>${row.aov === null ? "-" : money(row.aov)}</dd></div>
+    </dl>
+    <div class="creative-detail-reason"><strong>判断依据</strong><p>${escapeHtml(row.evidence_notes.join("；"))}</p></div>`;
+  detail.hidden = false;
+}
+
+function renderCreativeViewMode() {
+  document.querySelectorAll("[data-creative-view-mode]").forEach((button) => {
+    const active = button.dataset.creativeViewMode === state.creativeViewMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-creative-view]").forEach((view) => {
+    view.classList.toggle("hidden", view.dataset.creativeView !== state.creativeViewMode);
+  });
+}
+
 function renderCreativePage(creativeModel) {
+  const intelligence = window.CREATIVE_INTELLIGENCE_DATA || {};
+  currentCreativeDecisionModel = DashboardCreativeDecision.buildDecisionModel(
+    creativeModel.currentRows,
+    creativeModel.previousRows,
+    intelligence.assets || {},
+    intelligence.tags || {},
+  );
+  renderCreativeDecisionLists(currentCreativeDecisionModel);
+  renderCreativeContentInsights(currentCreativeDecisionModel);
+  renderCreativeViewMode();
   const meta = creativeSegmentMeta(creativeModel);
   document.getElementById("creativeTrendTitle").textContent = `${meta.label} GMV趋势`;
   document.getElementById("creativeStructureTitle").textContent = `${meta.label} GMV结构`;
@@ -4229,6 +4365,13 @@ function buildAttributionRenderModel() {
   };
 }
 
+function buildAllChannelsRenderModel() {
+  return {
+    attribution: buildAttributionRenderModel(),
+    sales: { channelModel: channelPageModel() },
+  };
+}
+
 function renderSharedAnalytics(model) {
   renderInsightSummary(model.fact || [], model.previousFact || [], model);
   renderKpis(model.fact || [], model.previousFact || [], model);
@@ -4343,6 +4486,23 @@ function renderAttributionRoute(model) {
 function renderChannelsRoute(model) {
   renderSharedAnalytics(model);
   renderChannels(model.channelModel);
+}
+
+function renderAllChannelsMode() {
+  document.querySelectorAll("[data-all-channels-mode]").forEach((button) => {
+    const active = button.dataset.allChannelsMode === state.allChannelsMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-all-channels-view]").forEach((view) => {
+    view.classList.toggle("hidden", view.dataset.allChannelsView !== state.allChannelsMode);
+  });
+}
+
+function renderAllChannelsRoute(model) {
+  renderAllChannelsMode();
+  if (state.allChannelsMode === "sales") renderChannelsRoute(model.sales);
+  else renderAttributionRoute(model.attribution);
 }
 
 const lifecycleCopy = {
@@ -4723,46 +4883,24 @@ DashboardRenderDispatcher.register("overview", measuredPageRenderer("overview", 
 DashboardRenderDispatcher.register("product", measuredPageRenderer("product", buildProductRenderModel, renderProductRoute));
 DashboardRenderDispatcher.register("country", measuredPageRenderer("country", buildCountryRenderModel, renderCountryRoute));
 DashboardRenderDispatcher.register("creative", measuredPageRenderer("creative", buildCreativeRenderModel, renderCreativeRoute));
-DashboardRenderDispatcher.register("lifecycle", measuredPageRenderer(
-  "lifecycle",
-  () => {
-    const normalized = DashboardState.normalizeLifecycleFilters(
-      state,
-      window.DASHBOARD_LIFECYCLE_DATA,
-    );
-    const changed = ["product", "material_type", "creative_id", "diagnosis", "stage", "metric"]
-      .some((key) => JSON.stringify(state[key]) !== JSON.stringify(normalized[key]));
-    Object.assign(state, normalized);
-    if (changed) syncUrl("replace");
-    return DashboardLifecycle.selectLifecycleModel(window.DASHBOARD_LIFECYCLE_DATA, state);
-  },
-  renderLifecyclePage,
-));
 DashboardRenderDispatcher.register("landing", measuredPageRenderer("landing", buildLandingRenderModel, renderLandingPage));
-DashboardRenderDispatcher.register("attribution", measuredPageRenderer("attribution", buildAttributionRenderModel, renderAttributionRoute));
-DashboardRenderDispatcher.register("channels", measuredPageRenderer(
-  "channels",
-  () => ({ channelModel: channelPageModel() }),
-  renderChannelsRoute,
-));
+DashboardRenderDispatcher.register("allChannels", measuredPageRenderer("allChannels", buildAllChannelsRenderModel, renderAllChannelsRoute));
 
 function renderSharedShell(page) {
   document.getElementById("viewTitle").textContent = page.title;
   document.getElementById("viewSubtitle").textContent = page.subtitle;
-  const lifecycleOnly = state.view === "lifecycle";
-  document.getElementById("periodBadge").textContent = lifecycleOnly
-    ? "固定快照" : `${daysBetween(state.startDate, state.endDate)} 天`;
-  document.querySelector(".filterbar").classList.toggle("lifecycle-fixed-snapshot", lifecycleOnly);
+  document.getElementById("periodBadge").textContent = `${daysBetween(state.startDate, state.endDate)} 天`;
+  document.querySelector(".filterbar").classList.remove("lifecycle-fixed-snapshot");
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === state.view));
   document.querySelectorAll("[id$='View']").forEach((section) => section.classList.add("hidden"));
   document.getElementById(`${state.view}View`).classList.remove("hidden");
   DashboardPageShell.apply(document.getElementById(`${state.view}View`), page.modules);
   renderContextFilters(page);
   renderPeriodHint();
-  const attributionOnly = state.view === "attribution";
+  const attributionOnly = isAttributionMode();
   ["insightSummary", "kpis", "comparison", "actionInsights"].forEach((id) => {
     const compactPage = ["country", "creative"].includes(state.view) && (id === "comparison" || id === "actionInsights");
-    document.getElementById(id).classList.toggle("hidden", attributionOnly || lifecycleOnly || compactPage);
+    document.getElementById(id).classList.toggle("hidden", attributionOnly || compactPage);
   });
 }
 
@@ -4963,6 +5101,29 @@ function bindEvents() {
       requestRender(render, { historyMode: "push", preserve: false });
     });
   });
+  document.addEventListener("click", (event) => {
+    const allChannelsButton = event.target.closest("[data-all-channels-mode]");
+    if (allChannelsButton) {
+      state.allChannelsMode = allChannelsButton.dataset.allChannelsMode;
+      initFilters();
+      requestRender(render, { historyMode: "replace" });
+      return;
+    }
+    const viewButton = event.target.closest("[data-creative-view-mode]");
+    if (viewButton) {
+      state.creativeViewMode = viewButton.dataset.creativeViewMode;
+      renderCreativeViewMode();
+      return;
+    }
+    const decisionButton = event.target.closest("[data-creative-decision-id]");
+    if (decisionButton) {
+      renderCreativeDecisionDetail(decisionButton.dataset.creativeDecisionId);
+      return;
+    }
+    if (event.target.closest("[data-creative-decision-close]")) {
+      document.getElementById("creativeDecisionDetail").hidden = true;
+    }
+  });
   document.querySelectorAll("[data-range-preset]").forEach((button) => {
     button.addEventListener("click", () => applyPendingDatePreset(button.dataset.rangePreset));
   });
@@ -5108,6 +5269,8 @@ function bindEvents() {
     state.creativeExpandedType = "";
     state.creativeExpandedSources = [];
     state.creativeSegment = "type";
+    state.creativeViewMode = "overall";
+    state.allChannelsMode = "attribution";
     state.expandedRegions = [];
     state.expandedProductSeries = [];
     initFilters();

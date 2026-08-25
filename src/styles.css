@@ -2888,6 +2888,258 @@ th:not(.num) .google-sort-button {
   }
 }
 
+.creative-view-control {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 16px;
+}
+
+.all-channels-mode-control {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 16px;
+}
+
+.all-channels-view.hidden {
+  display: none;
+}
+
+.all-channels-view {
+  display: grid;
+  gap: 16px;
+}
+
+.creative-view-mode {
+  display: grid;
+  gap: 16px;
+}
+
+.creative-view-mode.hidden {
+  display: none;
+}
+
+.creative-audit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 1px solid #d8e0ea;
+  background: #f7f9fc;
+  color: #475569;
+  font-size: 12px;
+}
+
+.creative-audit-bar strong {
+  color: #172033;
+  font-size: 13px;
+}
+
+.creative-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.creative-decision-panel {
+  min-width: 0;
+}
+
+.creative-decision-panel header p,
+.creative-content-panel header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.creative-card-list {
+  display: grid;
+  gap: 10px;
+  max-height: 620px;
+  overflow: auto;
+  padding: 0 14px 14px;
+}
+
+.creative-decision-card {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  min-height: 126px;
+  padding: 10px;
+  border: 1px solid #d8e0ea;
+  border-radius: 6px;
+  background: #fff;
+  color: #172033;
+  text-align: left;
+  cursor: pointer;
+}
+
+.creative-decision-card:hover,
+.creative-decision-card:focus-visible {
+  border-color: #3372c4;
+  box-shadow: 0 0 0 2px rgba(51, 114, 196, 0.12);
+  outline: none;
+}
+
+.creative-thumbnail,
+.creative-thumbnail-placeholder {
+  width: 92px;
+  height: 116px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #eef2f7;
+}
+
+.creative-thumbnail-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  color: #7b8798;
+  font-size: 11px;
+  text-align: center;
+}
+
+.creative-card-body,
+.creative-card-metrics,
+.creative-card-footer {
+  display: grid;
+}
+
+.creative-card-body {
+  min-width: 0;
+  gap: 6px;
+}
+
+.creative-card-title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creative-card-context {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.creative-card-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px 8px;
+  font-size: 11px;
+}
+
+.creative-card-metrics span,
+.creative-card-footer span {
+  white-space: nowrap;
+}
+
+.creative-card-footer {
+  grid-template-columns: repeat(3, max-content);
+  gap: 8px;
+  align-items: end;
+  color: #526174;
+  font-size: 10px;
+}
+
+.creative-empty-state {
+  margin: 0;
+  padding: 28px 12px;
+  color: #7b8798;
+  font-size: 12px;
+  text-align: center;
+}
+
+.creative-detail-drawer {
+  position: fixed;
+  z-index: 80;
+  top: 0;
+  right: 0;
+  width: min(440px, 100vw);
+  height: 100vh;
+  overflow: auto;
+  padding: 20px;
+  border-left: 1px solid #d8e0ea;
+  background: #fff;
+  box-shadow: -16px 0 40px rgba(15, 23, 42, 0.18);
+}
+
+.creative-detail-drawer[hidden] {
+  display: none;
+}
+
+.creative-detail-drawer > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.creative-detail-media .creative-thumbnail,
+.creative-detail-media .creative-thumbnail-placeholder {
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+  aspect-ratio: 4 / 5;
+}
+
+.creative-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 18px 0;
+  background: #d8e0ea;
+}
+
+.creative-detail-metrics div {
+  padding: 10px;
+  background: #f7f9fc;
+}
+
+.creative-detail-metrics dt {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.creative-detail-metrics dd {
+  margin: 3px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .creative-decision-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .creative-view-control {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .creative-decision-card {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .creative-thumbnail,
+  .creative-thumbnail-placeholder {
+    width: 76px;
+    height: 96px;
+  }
+
+  .creative-card-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .creative-card-footer {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* cockpit-refresh */
 :root {
   --surface: #ffffff;

@@ -6,8 +6,7 @@
     creative: "creative",
     lifecycle: "lifecycle",
     landing: "creative",
-    channels: "channels",
-    attribution: "attribution",
+    allChannels: ["attribution", "channels"],
   };
   const partitionFiles = {
     creative: "dashboard-creative-data.js",
@@ -126,7 +125,7 @@
   function ensure(view, options = {}) {
     const partition = partitionForView(view);
     const requestedPartitions = [...new Set([
-      partition,
+      ...(Array.isArray(partition) ? partition : [partition]),
       ...(options.additionalPartitions || []),
     ])].filter((item) => item && item !== "core");
     if (!requestedPartitions.length) return Promise.resolve(root.META_DASHBOARD_DATA);

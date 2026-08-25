@@ -52,13 +52,6 @@
       segments: ["type", "source", "subtype"],
       modules,
     },
-    lifecycle: {
-      title: "素材生命周期",
-      subtitle: "从产品到素材识别衰退趋势和行动机会",
-      filters: ["product", "material_type", "creative_id", "diagnosis", "stage", "metric"],
-      segments: [],
-      modules,
-    },
     landing: {
       title: "落地页",
       subtitle: "集合页、活动专题页、Bundle页和单品详情页承接表现",
@@ -67,19 +60,12 @@
       segments: [],
       modules,
     },
-    attribution: {
-      title: "归因",
-      subtitle: "渠道投放、Shopify 承接与数据可用性",
-      filters: ["channel", "googleAdTypes", "googleProducts", "googleCountries"],
+    allChannels: {
+      title: "全渠道",
+      subtitle: "投放归因、站内承接与销售渠道表现",
+      filters: ["channel", "channelProduct", "channelMarket", "channelCountries", "googleAdTypes", "googleProducts", "googleCountries"],
       segments: [],
-      modules,
-    },
-    channels: {
-      title: "渠道情况",
-      subtitle: "Shopify、Amazon 和 TikTok 销售趋势",
-      filters: ["channel", "channelProduct", "channelMarket", "channelCountries"],
-      segments: [],
-      modules: ["channel-summary", "channel-trend", "all-channel-products", "product-channel-mix", "channel-product-detail"],
+      modules: [...modules, "channel-summary", "channel-trend", "all-channel-products", "product-channel-mix", "channel-product-detail"],
     },
   };
 

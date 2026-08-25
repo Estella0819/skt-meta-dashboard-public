@@ -39,6 +39,9 @@
       const value = state[stateKey] ?? defaultValue;
       if (value !== "") params.set(param, value);
     });
+    if (state.view === "allChannels" && state.allChannelsMode === "sales") {
+      params.set("channelMode", "sales");
+    }
     activeFilterKeys(page, allFilterKeys).forEach((key) => {
       const value = state[key];
       if (Array.isArray(value)) {
@@ -57,7 +60,8 @@
 
   function parseUrl(search, getPage, fallbackView = "overview", allFilterKeys) {
     const params = new URLSearchParams(search || "");
-    const requestedView = params.get("view");
+    const legacyView = params.get("view");
+    const requestedView = ["attribution", "channels"].includes(legacyView) ? "allChannels" : legacyView;
     const requestedPage = requestedView && getPage(requestedView);
     const view = requestedPage ? requestedView : fallbackView;
     const parsed = { view };
@@ -67,6 +71,11 @@
     });
     if (!["previous", "lastMonth", "custom"].includes(parsed.compareMode)) {
       parsed.compareMode = "lastMonth";
+    }
+    if (view === "allChannels") {
+      parsed.allChannelsMode = params.get("channelMode") === "sales" ? "sales" : "attribution";
+      if (legacyView === "channels") parsed.allChannelsMode = "sales";
+      if (legacyView === "attribution") parsed.allChannelsMode = "attribution";
     }
     if (!requestedPage && requestedView) return parsed;
     const page = requestedPage || getPage(view);

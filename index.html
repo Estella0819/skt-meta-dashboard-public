@@ -22,10 +22,8 @@
           <button class="tab" data-view="product">产品</button>
           <button class="tab" data-view="country">国家</button>
           <button class="tab" data-view="creative">素材</button>
-          <button class="tab" data-view="lifecycle">素材生命周期</button>
           <button class="tab" data-view="landing">落地页</button>
-          <button class="tab" data-view="attribution">归因</button>
-          <button class="tab" data-view="channels">渠道情况</button>
+          <button class="tab" data-view="allChannels">全渠道</button>
         </nav>
       </div>
 
@@ -90,7 +88,7 @@
           <button type="button" class="multi-trigger" id="productFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="productFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="channelProduct" data-views="channels">
+        <div class="multi-select" data-filter="channelProduct" data-views="allChannels">
           <span class="filter-label">渠道产品</span>
           <button type="button" class="multi-trigger" id="channelProductFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="channelProductFilterPanel"></div>
@@ -105,7 +103,7 @@
           <button type="button" class="multi-trigger" id="landingTypeFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="landingTypeFilterPanel"></div>
         </div>
-        <div class="multi-select" data-filter="channel" data-views="channels,attribution">
+        <div class="multi-select" data-filter="channel" data-views="allChannels">
           <span class="filter-label">渠道</span>
           <button type="button" class="multi-trigger" id="channelFilterButton" aria-expanded="false">全部</button>
           <div class="multi-panel" id="channelFilterPanel"></div>
@@ -270,6 +268,12 @@
       </section>
 
       <section class="view-shell hidden" id="creativeView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <div id="creativeViewControl" class="segmented-control page-segment-control creative-view-control" aria-label="素材分析视图">
+          <button type="button" class="active" data-creative-view-mode="overall" aria-pressed="true">整体表现</button>
+          <button type="button" data-creative-view-mode="decision" aria-pressed="false">扩量决策</button>
+          <button type="button" data-creative-view-mode="content" aria-pressed="false">内容洞察</button>
+        </div>
+        <div class="creative-view-mode" data-creative-view="overall">
         <div class="creative-segment-module" data-creative-segment-module data-module="trend">
           <div class="analysis-chart-row">
             <article class="panel trend-panel" data-module="trend">
@@ -316,52 +320,45 @@
             <table id="creativeDetailTable"></table>
           </div>
         </article>
-      </section>
+        </div>
 
-      <section class="view-shell hidden lifecycle-shell" id="lifecycleView" data-page-order="conclusion,kpis,trend,structure,detail">
-        <section id="lifecycleHealthBanner" class="lifecycle-health lifecycle-state-loading" role="status" aria-live="polite" data-module="conclusion">
-          <span class="lifecycle-status-icon" aria-hidden="true">⌛</span>
-          <div><strong>正在加载素材生命周期数据</strong><p>加载完成后将显示覆盖区间和数据缺口。</p></div>
+        <section class="creative-view-mode hidden" data-creative-view="decision" aria-label="扩量决策">
+          <div id="creativeDecisionAudit" class="creative-audit-bar" role="status"></div>
+          <div class="creative-decision-grid">
+            <article class="panel creative-decision-panel">
+              <header><div><h3>可扩量 Top10</h3><p>同组效率领先且证据充分</p></div></header>
+              <div id="creativeScaleList" class="creative-card-list"></div>
+            </article>
+            <article class="panel creative-decision-panel">
+              <header><div><h3>高潜待验证</h3><p>效率信号领先，样本仍需累积</p></div></header>
+              <div id="creativePotentialList" class="creative-card-list"></div>
+            </article>
+            <article class="panel creative-decision-panel">
+              <header><div><h3>疲劳预警</h3><p>可比花费下效率出现同步衰退</p></div></header>
+              <div id="creativeFatigueList" class="creative-card-list"></div>
+            </article>
+            <article class="panel creative-decision-panel">
+              <header><div><h3>低效停投候选</h3><p>样本充分且落入同组后四分位</p></div></header>
+              <div id="creativePauseList" class="creative-card-list"></div>
+            </article>
+          </div>
         </section>
 
-        <section id="lifecycleKpis" class="lifecycle-kpi-grid" aria-label="素材生命周期核心指标" data-module="kpis"></section>
+        <section class="creative-view-mode hidden" data-creative-view="content" aria-label="内容洞察">
+          <div id="creativeContentAudit" class="creative-audit-bar" role="status"></div>
+          <article class="panel creative-content-panel">
+            <header><div><h3>图文内容方向</h3><p>仅汇总已查看原素材并完成内容标注的记录</p></div></header>
+            <div class="table-wrap"><table id="creativeImageContentTable"></table></div>
+          </article>
+          <article class="panel creative-content-panel">
+            <header><div><h3>视频内容方向</h3><p>Hook 与脚本结构独立于图文维度分析</p></div></header>
+            <div class="table-wrap"><table id="creativeVideoContentTable"></table></div>
+          </article>
+        </section>
 
-        <article class="panel lifecycle-action-panel" data-module="trend">
-          <header>
-            <div><h3>今日行动队列</h3><p>追踪问题优先，其次是高置信度素材疲劳。</p></div>
-            <button class="metric-info" type="button" title="同一优先级按花费降序，追踪风险使用全部活跃素材作为独立分母" aria-label="行动队列排序口径">i</button>
-          </header>
-          <div class="lifecycle-table-scroll">
-            <table id="lifecycleActionQueue" aria-label="素材生命周期行动队列"></table>
-          </div>
-        </article>
-
-        <article class="panel lifecycle-hierarchy-panel" data-module="structure">
-          <header>
-            <div>
-              <h3 id="lifecycleHierarchyTitle">产品衰退趋势</h3>
-              <nav id="lifecycleBreadcrumb" class="drilldown-breadcrumb" aria-label="素材生命周期下钻路径"></nav>
-            </div>
-            <button class="metric-info" type="button" title="默认从产品定位，再下钻到素材类型和单个素材" aria-label="三级分析口径">i</button>
-          </header>
-          <div class="lifecycle-table-scroll">
-            <table id="lifecycleHierarchyTable" aria-label="产品到素材三级分析"></table>
-          </div>
-        </article>
-
-        <section id="lifecyclePageState" class="lifecycle-page-state" aria-live="polite" hidden></section>
-
-        <aside id="lifecycleCreativeDetail" class="panel lifecycle-detail" aria-label="素材证据详情" data-module="detail" hidden>
-          <header><h3>素材证据详情</h3><button type="button" class="ghost-button" data-lifecycle-close-detail aria-label="关闭素材证据详情">关闭</button></header>
-          <div id="lifecycleCreativeDetailBody"></div>
-          <div id="lifecycleChartWindows" class="segmented-control lifecycle-chart-windows" aria-label="曲线时间窗口">
-            <button type="button" data-lifecycle-chart-days="3">近 3 日</button>
-            <button type="button" data-lifecycle-chart-days="7">近 7 日</button>
-            <button type="button" data-lifecycle-chart-days="30" class="active">近 30 日</button>
-          </div>
-          <section id="lifecycleMetricCharts" class="lifecycle-metric-grid" aria-label="CTR、CPM、Frequency 和 ROAS 同步曲线"></section>
-          <section id="lifecycleEvidenceExplanation" class="lifecycle-evidence-explanation" aria-label="诊断解释"></section>
-          <nav id="lifecycleDetailActions" class="lifecycle-detail-actions" aria-label="详情跳转"></nav>
+        <aside id="creativeDecisionDetail" class="creative-detail-drawer" aria-label="素材决策详情" hidden>
+          <header><h3>素材详情与建议</h3><button type="button" class="ghost-button" data-creative-decision-close aria-label="关闭素材详情">关闭</button></header>
+          <div id="creativeDecisionDetailBody"></div>
         </aside>
       </section>
 
@@ -436,7 +433,12 @@
         </article>
       </section>
 
-      <section class="view-shell hidden" id="attributionView" data-page-order="conclusion,kpis,trend,structure,detail">
+      <section class="view-shell hidden" id="allChannelsView" data-page-order="conclusion,kpis,trend,structure,detail,channel-summary,channel-trend,all-channel-products,product-channel-mix,channel-product-detail">
+        <div id="allChannelsModeControl" class="segmented-control page-segment-control all-channels-mode-control" aria-label="全渠道分析视图">
+          <button type="button" class="active" data-all-channels-mode="attribution" aria-pressed="true">投放归因</button>
+          <button type="button" data-all-channels-mode="sales" aria-pressed="false">销售渠道</button>
+        </div>
+        <div class="all-channels-view" data-all-channels-view="attribution">
         <section id="attributionSourceHealth" class="source-health-grid" aria-label="数据源状态" data-module="conclusion"></section>
         <section id="attributionKpis" class="attribution-kpi-grid" aria-label="归因核心指标" data-module="kpis"></section>
         <section class="attribution-layout" data-module="trend">
@@ -499,9 +501,9 @@
           </header>
           <div id="attributionIssues" class="attribution-issues"></div>
         </article>
-      </section>
+        </div>
 
-      <section class="view-shell hidden" id="channelsView" data-page-order="channel-summary,channel-trend,all-channel-products,product-channel-mix,channel-product-detail">
+        <div class="all-channels-view hidden" data-all-channels-view="sales">
         <div class="channel-scope-bar">
           <div id="channelMarketControl" class="segmented-control" aria-label="市场范围">
             <button type="button" class="active" data-channel-market="US">美国</button>
@@ -553,6 +555,7 @@
             <table id="usChannelProductTable"></table>
           </div>
         </article>
+        </div>
       </section>
     </main>
 
@@ -570,10 +573,10 @@
     <script src="./src/render-dispatcher.js?v=20260723-render-dispatcher"></script>
     <script src="./src/pages/country-page.js?v=20260730-aditya-cocreate"></script>
     <script src="./src/pages/creative-page.js?v=20260730-aditya-cocreate"></script>
+    <script src="./data/dashboard-creative-intelligence-data.js?v=20260825-creative-intelligence-v1"></script>
+    <script src="./src/pages/creative-decision.js?v=20260825-creative-intelligence-v1"></script>
     <script src="./src/pages/product-page.js?v=20260824-complexion-hierarchy"></script>
     <script src="./src/pages/channel-page.js?v=20260730-aditya-cocreate"></script>
-    <script src="./src/components/lifecycle-metric-charts.js?v=20260807-lifecycle-evidence"></script>
-    <script src="./src/pages/lifecycle-page.js?v=20260807-lifecycle-dashboard"></script>
     <script src="./src/product-filter-options.js?v=20260722-product-source-split"></script>
     <script src="./src/app.js?v=20260824-chart-visual-v1"></script>
   </body>
