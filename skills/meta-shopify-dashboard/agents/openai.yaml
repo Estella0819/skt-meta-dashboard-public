@@ -1,0 +1,4 @@
+interface:
+  display_name: "SKT Meta Dashboard"
+  short_description: "更新、审计、交接和复用 SKT 独立站投放看板"
+  default_prompt: "Use $meta-shopify-dashboard to update or maintain the SKT independent-site advertising dashboard end to end."
