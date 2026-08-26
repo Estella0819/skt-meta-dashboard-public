@@ -4053,10 +4053,17 @@ function creativeTrendLabel(trend = {}) {
   return `ROAS ${trend.roas_change >= 0 ? "+" : ""}${pct(trend.roas_change)}`;
 }
 
+function handleCreativeThumbnailError(image) {
+  const placeholder = document.createElement("div");
+  placeholder.className = "creative-thumbnail-placeholder";
+  placeholder.textContent = "缩略图不可用";
+  image.replaceWith(placeholder);
+}
+
 function creativeThumbnail(row) {
   const thumbnail = row.asset?.thumbnail_path;
   if (!thumbnail) return '<div class="creative-thumbnail-placeholder">未匹配缩略图</div>';
-  return `<img class="creative-thumbnail" src="${escapeHtml(thumbnail)}" alt="${escapeHtml(row.material_id)} 素材缩略图" loading="lazy">`;
+  return `<img class="creative-thumbnail" src="${escapeHtml(thumbnail)}" alt="${escapeHtml(row.material_id)} 素材缩略图" loading="lazy" referrerpolicy="no-referrer" onerror="handleCreativeThumbnailError(this)">`;
 }
 
 function creativeDecisionCard(row) {
