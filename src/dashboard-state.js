@@ -26,6 +26,11 @@
       .filter((value) => value && value !== "全部");
   }
 
+  function normalizeChannelMarket(value) {
+    // Keep old shared URLs usable after splitting the non-US scope into two views.
+    return value === "NON_US" ? "NON_US_COMPARE" : value;
+  }
+
   function activeFilterKeys(page, allFilterKeys) {
     return Array.isArray(allFilterKeys) && allFilterKeys.length
       ? allFilterKeys
@@ -39,8 +44,8 @@
       const value = state[stateKey] ?? defaultValue;
       if (value !== "") params.set(param, value);
     });
-    if (state.view === "allChannels" && state.allChannelsMode === "sales") {
-      params.set("channelMode", "sales");
+    if (state.view === "allChannels" && state.allChannelsMode === "attribution") {
+      params.set("channelMode", "attribution");
     }
     activeFilterKeys(page, allFilterKeys).forEach((key) => {
       const value = state[key];
@@ -50,7 +55,7 @@
       }
       const defaultValue = scalarFilterDefaults[key];
       if (value !== undefined && value !== "" && value !== defaultValue) {
-        params.set(key, value);
+        params.set(key, key === "channelMarket" ? normalizeChannelMarket(value) : value);
       }
     });
     const pathname = locationLike.pathname || "";
@@ -73,7 +78,7 @@
       parsed.compareMode = "lastMonth";
     }
     if (view === "allChannels") {
-      parsed.allChannelsMode = params.get("channelMode") === "sales" ? "sales" : "attribution";
+      parsed.allChannelsMode = params.get("channelMode") === "attribution" ? "attribution" : "sales";
       if (legacyView === "channels") parsed.allChannelsMode = "sales";
       if (legacyView === "attribution") parsed.allChannelsMode = "attribution";
     }
@@ -81,7 +86,8 @@
     const page = requestedPage || getPage(view);
     activeFilterKeys(page, allFilterKeys).forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(scalarFilterDefaults, key)) {
-        parsed[key] = params.get(key) || scalarFilterDefaults[key];
+        const value = params.get(key) || scalarFilterDefaults[key];
+        parsed[key] = key === "channelMarket" ? normalizeChannelMarket(value) : value;
         return;
       }
       const values = cleanValues(params.getAll(key));

@@ -1,37 +1,16 @@
-(function attachDashboardProduct(root, metrics, factory) {
-  const api = factory(metrics);
+(function attachDashboardProduct(root, metrics, taxonomy, factory) {
+  const api = factory(metrics, taxonomy);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.DashboardProduct = api;
 })(
   typeof window !== "undefined" ? window : globalThis,
   typeof DashboardMetrics !== "undefined" ? DashboardMetrics : require("../dashboard-metrics.js"),
-  function createDashboardProduct(DashboardMetricsApi) {
-    const productHierarchy = [
-      {
-        name: "底妆系列",
-        children: [
-          "底妆合集",
-          { name: "气垫系列", children: ["水光气垫", "蓝色气垫", "金色气垫", "气垫合集"] },
-          { name: "粉饼系列", children: ["粉饼", "粉饼2件套"] },
-          { name: "有色面霜系列", children: ["有色面霜", "有色面霜2件套", "有色面霜3件套"] },
-        ],
-      },
-      { name: "防晒系列", children: ["防晒合集", "有色防晒"] },
-      { name: "VC系列", children: ["VC两件套", "VC双舱精华"] },
-      {
-        name: "美白系列",
-        children: [
-          "美白多件套", "美白面膜套装", "美白面膜套组", "美白4件套", "美白3件套", "美白面膜",
-          "美白面霜", "美白防晒", "美白洗面奶", "美白面膜+PDRN面霜套组", "美白面膜+美白面霜套组",
-        ],
-      },
-      { name: "水光肌系列", children: ["水光肌2件套", "水光肌3件套"] },
-      { name: "PDRN系列", children: ["PDRN套组", "PDRN美白啫喱片", "PDRN面霜", "PDRN精华", "PDRN次抛精华"] },
-      { name: "泥膜棒系列", children: ["泥膜棒合集", "火山泥膜棒", "艾草泥膜棒", "美白泥膜棒", "PDRN泥膜棒", "亚马逊白泥泥膜棒", "亚马逊白泥固体泥膜"] },
-      { name: "水油喷雾系列", children: ["水油喷雾", "PDRN水油喷雾", "水油喷雾2件套", "水油喷雾合集"] },
-    ];
+  typeof DashboardProductTaxonomy !== "undefined" ? DashboardProductTaxonomy : require("../product-taxonomy.js"),
+  function createDashboardProduct(DashboardMetricsApi, DashboardProductTaxonomyApi) {
+    const productHierarchy = DashboardProductTaxonomyApi.hierarchy;
     const productSeriesLookup = new Map();
     const productPathLookup = new Map();
+    const productNodePathLookup = new Map();
 
     function indexProductHierarchy(node, rootSeries, ancestors = []) {
       if (typeof node === "string") {
@@ -41,6 +20,8 @@
         return [node];
       }
       const path = [...ancestors, node.name];
+      productSeriesLookup.set(node.name, rootSeries || node.name);
+      productNodePathLookup.set(node.name, path);
       return node.children.flatMap((child) => indexProductHierarchy(child, rootSeries || node.name, path));
     }
 
@@ -164,11 +145,11 @@
       const currentTotal = DashboardMetricsApi.summarizeRows(currentRows || []);
       const previousTotal = DashboardMetricsApi.summarizeRows(previousRows || []);
       const rowsForLeaves = (groups, leaves) => leaves.flatMap((leaf) => groups.get(leaf) || []);
-      const leavesForNode = (node) => (
+      const leavesForNode = (node) => [...new Set(
         typeof node === "string"
           ? [node]
-          : node.children.flatMap((child) => leavesForNode(child))
-      );
+          : [node.name, ...node.children.flatMap((child) => leavesForNode(child))],
+      )];
       const output = [];
 
       function buildNode(node, depth, parentValue = "", rootSeries = "") {
@@ -177,7 +158,8 @@
         if (!nodeCurrentRows.length) return [];
         const nodePreviousRows = rowsForLeaves(previousByProduct, leaves);
         const nodeName = typeof node === "string" ? node : node.name;
-        const expandable = typeof node !== "string";
+        const expandable = typeof node !== "string"
+          && !(node.children.length === 1 && node.children[0] === node.name);
         const expanded = expandable && expandedSeries.includes(nodeName);
         const row = {
           ...hierarchyMetricRow(nodeCurrentRows, nodePreviousRows, currentTotal, previousTotal),
@@ -191,8 +173,25 @@
           _expanded: expanded,
         };
         if (!expanded) return [row];
+        const directRows = typeof node === "string" ? [] : (currentByProduct.get(node.name) || []);
+        const directPreviousRows = typeof node === "string" ? [] : (previousByProduct.get(node.name) || []);
+        const directRow = directRows.length && !node.children.includes(node.name)
+          ? [{
+            ...hierarchyMetricRow(directRows, directPreviousRows, currentTotal, previousTotal),
+            standard_product_name: node.name,
+            product_series: rootSeries || node.name,
+            _depth: depth + 1,
+            _nodeType: "product",
+            _nodeValue: node.name,
+            _displayName: node.name === "5X系列" ? "5X套组" : `${node.name}（Meta仅标到系列）`,
+            _parentValue: nodeName,
+            _expandable: false,
+            _expanded: false,
+          }]
+          : [];
         return [
           row,
+          ...directRow,
           ...node.children.flatMap((child) => buildNode(child, depth + 1, nodeName, rootSeries || nodeName)),
         ];
       }
@@ -208,7 +207,7 @@
           purchaseValue: DashboardMetricsApi.summarizeRows(rows).purchase_value,
         }));
       const ungroupedProducts = [...currentByProduct.keys()]
-        .filter((product) => !productPathLookup.has(product))
+        .filter((product) => !productPathLookup.has(product) && !productNodePathLookup.has(product))
         .map((product) => ({
           node: product,
           purchaseValue: DashboardMetricsApi.summarizeRows(currentByProduct.get(product)).purchase_value,

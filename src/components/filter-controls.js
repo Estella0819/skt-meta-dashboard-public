@@ -74,6 +74,12 @@
       }));
   }
 
+  function groupChildren(group) {
+    const nestedChildren = Array.isArray(group?.children) ? group.children : [];
+    if (nestedChildren.length) return nestedChildren;
+    return Array.isArray(group?.values) ? group.values : [];
+  }
+
   function updateGroupSelections(panel) {
     panel.querySelectorAll("[data-filter-group]").forEach((input) => {
       const group = input.closest("[data-filter-group-row]");
@@ -170,7 +176,19 @@
         return;
       }
       if (event.target.matches(".multi-panel input[data-filter-option]")) {
-        commit(event.target.dataset.filter, event.target.closest(".multi-panel"));
+        const panel = event.target.closest(".multi-panel");
+        const key = event.target.dataset.filter;
+        const inputs = optionInputs(panel);
+        const wasDefaultAllSelection = key === "operator"
+          && !event.target.checked
+          && inputs.length > 1
+          && inputs.every((input) => input === event.target || input.checked);
+        if (wasDefaultAllSelection) {
+          inputs.forEach((input) => {
+            input.checked = input === event.target;
+          });
+        }
+        commit(key, panel);
         return;
       }
       if (!event.target.matches("[data-filter-select-all]")) return;
@@ -201,6 +219,7 @@
     NONE_VALUE,
     availableValues,
     groupValues,
+    groupChildren,
     selectionSummary,
     selectionForState,
     selectAllState,

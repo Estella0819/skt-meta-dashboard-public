@@ -3,7 +3,7 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.DashboardChannels = api;
 })(typeof window !== "undefined" ? window : globalThis, function createDashboardChannels() {
-  const defaultNonUsCountries = ["AU", "CA", "JP", "GB"];
+  const defaultComparableCountries = ["AU", "CA", "JP", "GB"];
 
   function number(value) {
     const parsed = Number(value);
@@ -26,11 +26,13 @@
     const countries = filters.channelCountries || filters.countries || [];
     const channels = filters.channel || [];
     const products = filters.channelProduct || filters.product || [];
-    const allowedCountries = market === "NON_US" && !countries.length ? defaultNonUsCountries : countries;
+    const allowedCountries = market === "NON_US_COMPARE" && !countries.length
+      ? defaultComparableCountries
+      : countries;
 
     return (rows || []).map(normalizeRow).filter((row) => {
       if (row.channel_sales === 0 || row.market !== market) return false;
-      if (market === "NON_US" && !allowedCountries.includes(row.country_code)) return false;
+      if (countries.length && !allowedCountries.includes(row.country_code)) return false;
       if (channels.length && !channels.includes(row.channel)) return false;
       if (products.length && !products.includes(row.product_name)) return false;
       return true;

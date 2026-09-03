@@ -1,1 +1,3 @@
-﻿pattern_key,current_rule,row_count,meta_spend,meta_gmv,conversions,top_country,top_operator,example_ad_name_1,example_ad_name_2,example_ad_name_3,manual_product_name,manual_action,manual_notes
+﻿"原始产品名","清洗后产品名","花费 USD","Meta GMV USD","转化数","曝光","数据行数","首次日期","最后日期","账户","国家","投手","人工确认标准产品名","人工确认父系列","人工确认产品形态","备注"
+"道歉信","道歉信","1094.26","1958.76","35","118619","207","2026-06-10","2026-06-27","SKT_US_Website_03","AT、AU、BE、CA、CH、DE、FR、GB、IE、IT、NL、NZ","Leo","","","","请填写标准产品名/父系列/单品或套组；如确实无法判断，请备注原因"
+"combo","combo","0.46","0.00","0","52","5","2026-08-24","2026-08-24","SKT_US_Website_02","AU、CA、GB、IT、NZ","Estella","","","","请填写标准产品名/父系列/单品或套组；如确实无法判断，请备注原因"

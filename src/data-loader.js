@@ -4,13 +4,11 @@
     product: "core",
     country: "core",
     creative: "creative",
-    lifecycle: "lifecycle",
     landing: "creative",
     allChannels: ["attribution", "channels"],
   };
   const partitionFiles = {
     creative: "dashboard-creative-data.js",
-    lifecycle: "dashboard-lifecycle-data.js",
     channels: "dashboard-channel-data.js",
     attribution: "dashboard-attribution-data.js",
   };
@@ -53,24 +51,18 @@
   }
 
   function loadedPayload(partition) {
-    return partition === "lifecycle"
-      ? root.DASHBOARD_LIFECYCLE_DATA
-      : root.META_DASHBOARD_DATA;
+    return root.META_DASHBOARD_DATA;
   }
 
   function mergePartition(partition) {
-    if (partition === "lifecycle") {
-      const payload = root.DASHBOARD_LIFECYCLE_DATA;
-      if (!payload) {
-        throw new Error("数据分包 lifecycle 已加载，但未注册有效数据");
-      }
-      loadedPartitions.add(partition);
-      return payload;
-    }
     const payload = root.META_DASHBOARD_PARTITIONS?.[partition];
     if (!payload) {
       throw new Error(`数据分包 ${partition} 已加载，但未注册有效数据`);
     }
+    const chunks = root.META_DASHBOARD_PARTITION_CHUNKS?.[partition] || {};
+    Object.entries(chunks).forEach(([key, rows]) => {
+      payload[key] = rows;
+    });
     const normalized = typeof root.normalizeDashboardData === "function"
       ? root.normalizeDashboardData(payload)
       : payload;
@@ -101,11 +93,11 @@
       script.async = true;
       script.src = partitionUrl(partition);
       script.onload = () => {
-        try {
-          resolve(mergePartition(partition));
-        } catch (error) {
-          reject(error);
-        }
+        const shardNames = root.META_DASHBOARD_PARTITION_SHARDS?.[partition] || [];
+        Promise.all(shardNames.map((name) => loadScript(partitionUrlForName(partition, name))))
+          .then(() => mergePartition(partition))
+          .then(resolve)
+          .catch(reject);
       };
       script.onerror = () => reject(
         new Error(`无法加载页面数据：${partitionFiles[partition]}`)
@@ -122,6 +114,27 @@
     return promise;
   }
 
+  function partitionUrlForName(partition, filename) {
+    if (loaderScriptUrl) {
+      const assetUrl = new URL(`../data/${filename}`, loaderScriptUrl);
+      const releaseKey = new URL(loaderScriptUrl).searchParams.get("v");
+      if (releaseKey) assetUrl.searchParams.set("v", releaseKey);
+      return assetUrl.href;
+    }
+    return `./data/${filename}`;
+  }
+
+  function loadScript(url) {
+    return new Promise((resolve, reject) => {
+      const script = root.document.createElement("script");
+      script.async = true;
+      script.src = url;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`无法加载页面数据分片：${url}`));
+      root.document.head.appendChild(script);
+    });
+  }
+
   function ensure(view, options = {}) {
     const partition = partitionForView(view);
     const requestedPartitions = [...new Set([
@@ -133,9 +146,7 @@
     return Promise.all(requestedPartitions.map(loadPartition))
       .then((payloads) => {
         clearState(view);
-        return partition === "lifecycle"
-          ? payloads[requestedPartitions.indexOf("lifecycle")]
-          : root.META_DASHBOARD_DATA;
+        return root.META_DASHBOARD_DATA;
       })
       .catch((error) => {
         showState(view, "error", error?.message || "当前页面数据加载失败");

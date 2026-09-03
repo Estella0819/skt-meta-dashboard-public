@@ -30,6 +30,34 @@
     }).map(({ row }) => row);
   }
 
+  function sortHierarchyRows(rows, key, direction, accessor = (row) => row[key]) {
+    const sourceRows = Array.isArray(rows) ? rows : [];
+    if (!sourceRows.some((row) => Number.isFinite(row?._depth))) {
+      return sortRows(sourceRows, key, direction, accessor);
+    }
+
+    const roots = [];
+    const stack = [];
+    sourceRows.forEach((row) => {
+      const depth = Math.max(0, Number.isFinite(row?._depth) ? Math.floor(row._depth) : 0);
+      const node = { row, children: [] };
+      const parent = depth > 0 ? stack[depth - 1] : null;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+      stack[depth] = node;
+      stack.length = depth + 1;
+    });
+
+    const sortNodes = (nodes) => sortRows(
+      nodes,
+      key,
+      direction,
+      (node) => accessor(node.row),
+    ).map((node) => ({ ...node, children: sortNodes(node.children) }));
+    const flatten = (nodes) => nodes.flatMap((node) => [node.row, ...flatten(node.children)]);
+    return flatten(sortNodes(roots));
+  }
+
   function nextSort(current = {}, key) {
     return current.key === key
       ? { key, direction: current.direction === "desc" ? "asc" : "desc" }
@@ -134,7 +162,12 @@
     const sourceRows = Array.isArray(rows) ? rows : [];
     const tableColumns = Array.isArray(columns) ? columns : [];
     const sorted = options.sort?.key
-      ? sortRows(sourceRows, options.sort.key, options.sort.direction, options.sort.accessor)
+      ? (options.preserveHierarchy ? sortHierarchyRows : sortRows)(
+        sourceRows,
+        options.sort.key,
+        options.sort.direction,
+        options.sort.accessor,
+      )
       : [...sourceRows];
     const bodyParts = sorted.map((row) => tableColumns.map((column) => {
       const raw = column.value ? column.value(row) : row[column.key];
@@ -227,6 +260,7 @@
       const sortTarget = source?.closest?.("[data-table-sort-key]");
       if (sortTarget && typeof binding.sort?.onChange === "function") {
         event.preventDefault();
+        event.stopPropagation?.();
         binding.sort.onChange(nextSort(binding.sort, sortTarget.dataset.tableSortKey));
         return;
       }
@@ -443,9 +477,14 @@
     const sourceRows = Array.isArray(rows) ? rows : [];
     const tableColumns = Array.isArray(columns) ? columns : [];
     const escape = options.escapeHtml || escapeHtml;
-    const sort = options.sort?.key ? options.sort : null;
-    const sortedRows = sort
-      ? sortRows(sourceRows, sort.key, sort.direction, sort.accessor)
+    const sort = options.sort || null;
+    const sortedRows = sort?.key
+      ? (options.preserveHierarchy ? sortHierarchyRows : sortRows)(
+        sourceRows,
+        sort.key,
+        sort.direction,
+        sort.accessor,
+      )
       : [...sourceRows];
     const wrapper = element.closest?.(".table-wrap");
     const visibleRowCount = Number.isFinite(options.visibleRowCount)
@@ -500,9 +539,11 @@
       wrapper,
       dimensionFilters: new Map(),
       viewportHeight: 0,
-      copyText: toTsv(sortedRows, tableColumns, {
+      copyText: toTsv(sourceRows, tableColumns, {
         summaryCells,
         comparisonLabel: options.comparisonLabel,
+        sort,
+        preserveHierarchy: options.preserveHierarchy,
       }),
     };
     bindings.set(element, binding);
@@ -524,5 +565,5 @@
     return bindings.get(element)?.copyText || "";
   }
 
-  return { sortRows, nextSort, toTsv, copy, writeClipboard, render };
+  return { sortRows, sortHierarchyRows, nextSort, toTsv, copy, writeClipboard, render };
 });

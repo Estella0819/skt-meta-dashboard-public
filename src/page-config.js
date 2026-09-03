@@ -16,7 +16,6 @@
     "videoSubtype",
     "materialName",
     "adName",
-    "lifecycleCreativeId",
   ];
   const pages = {
     overview: {
@@ -47,7 +46,7 @@
     creative: {
       title: "素材",
       subtitle: "高花费、高回报和风险素材分层",
-      filters: ["account", "country", "product", "productForm", "operator", "materialType", "videoSource", "videoSubtype", "materialName", "adName", "lifecycleCreativeId"],
+      filters: ["account", "country", "product", "productForm", "operator", "materialType", "videoSource", "videoSubtype", "materialName", "adName"],
       dataFilters: metaCrossFilters,
       segments: ["type", "source", "subtype"],
       modules,

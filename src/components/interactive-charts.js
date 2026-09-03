@@ -204,6 +204,7 @@ const DashboardCharts = ((DashboardMetricsApi) => {
 
   const renderSeriesChart = (element, model, options = {}) => {
     element.replaceChildren();
+    element.classList.remove("is-short-period", "is-medium-period", "is-long-period");
     element.classList.add("interactive-series-chart");
     if (!(model?.categories || []).length) {
       renderEmptyState(element);
@@ -240,9 +241,15 @@ const DashboardCharts = ((DashboardMetricsApi) => {
     controls.append(trigger, panel);
     element.append(controls);
 
+    const periodClass = model.dates.length <= 7
+      ? "is-short-period"
+      : (model.dates.length <= 21 ? "is-medium-period" : "is-long-period");
+    element.classList.add(periodClass);
     const width = Math.max(320, Math.round(number(element.getBoundingClientRect().width)));
     const height = 330;
-    const padding = { top: 18, right: 24, bottom: 40, left: 62 };
+    const padding = model.dates.length <= 7
+      ? { top: 18, right: 16, bottom: 40, left: 54 }
+      : { top: 18, right: 24, bottom: 40, left: 62 };
     const svg = createSvg("svg", {
       viewBox: `0 0 ${width} ${height}`,
       role: "img",

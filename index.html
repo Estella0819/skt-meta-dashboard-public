@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SKINTIFIC 独立站投放看板</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="./src/styles.css?v=20260825-creative-intelligence-v2" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260903-product-mapping-v1" />
   </head>
   <body class="cockpit-shell-marker">
     <header class="topbar">
@@ -161,14 +161,7 @@
         </section>
         <section class="page-structure-anchor" data-module="structure" aria-hidden="true"></section>
         <section class="rank-grid" data-module="detail">
-          <article class="panel">
-            <header>
-              <h3>国家排行</h3>
-              <button class="metric-info" type="button" title="按归因收入排名；筛选产品后展示该产品各国家表现" aria-label="国家排行口径">i</button>
-            </header>
-            <div id="countryBars" class="bars"></div>
-          </article>
-          <article class="panel">
+          <article class="panel overview-product-rank-panel">
             <header>
               <h3>产品排行</h3>
               <button class="metric-info" type="button" title="按归因收入排名，不是按花费" aria-label="产品排行口径">i</button>
@@ -177,10 +170,10 @@
           </article>
           <article class="panel">
             <header>
-              <h3>素材排行</h3>
-              <button class="metric-info" type="button" title="跟随产品筛选，按花费排序" aria-label="素材排行口径">i</button>
+              <h3>国家排行</h3>
+              <button class="metric-info" type="button" title="按归因收入排名；筛选产品后展示该产品各国家表现" aria-label="国家排行口径">i</button>
             </header>
-            <div id="materialBars" class="bars"></div>
+            <div id="countryBars" class="bars"></div>
           </article>
           <article class="panel">
             <header>
@@ -227,6 +220,11 @@
       </section>
 
       <section class="view-shell hidden country-page" id="countryView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <div id="countryViewControl" class="segmented-control page-segment-control country-view-control" aria-label="国家分析视图">
+          <button type="button" class="active" data-country-view-mode="overview" aria-pressed="true">国家表现</button>
+          <button type="button" data-country-view-mode="product-country" aria-pressed="false">产品 × 地区</button>
+        </div>
+        <div class="country-view-mode" data-country-view="overview">
         <div class="analysis-chart-row">
           <article class="panel country-trend-panel" data-module="trend">
             <header>
@@ -256,15 +254,18 @@
             <table id="regionTable"></table>
           </div>
         </article>
-        <article class="panel country-detail-panel" data-module="detail">
-          <header>
-            <h3>国家明细</h3>
-            <button class="metric-info" type="button" title="标准产品粒度，按归因收入排序" aria-label="国家明细口径">i</button>
-          </header>
-          <div class="table-wrap">
-            <table id="countryDetailTable"></table>
-          </div>
-        </article>
+        </div>
+        <div class="country-view-mode hidden" data-country-view="product-country">
+          <article class="panel country-product-performance-panel" data-module="detail">
+            <header>
+              <h3>产品 × 地区横向对比</h3>
+              <button class="metric-info" type="button" title="仅使用 Meta 广告数据；地区贡献占比 = 该地区产品 GMV ÷ 该产品全部地区 GMV；占比环比展示较上期变化的百分点；下方保留 GMV、花费、ROAS 及各自环比" aria-label="产品地区横向对比口径">i</button>
+            </header>
+            <div class="table-wrap">
+              <table id="countryDetailTable"></table>
+            </div>
+          </article>
+        </div>
       </section>
 
       <section class="view-shell hidden" id="creativeView" data-page-order="conclusion,kpis,trend,structure,detail">
@@ -311,47 +312,127 @@
             <table id="creativeProductMaterialTable"></table>
           </div>
         </article>
-        <article class="panel" data-module="detail">
-          <header>
-            <h3>素材明细</h3>
-            <button class="metric-info" type="button" title="Meta 原始素材编号明细；Unknown、- 与空编号显示为空白，按花费排序" aria-label="素材编号明细口径">i</button>
-          </header>
-          <div class="table-wrap">
-            <table id="creativeDetailTable"></table>
-          </div>
+        <article class="panel collapsible-data-panel" data-module="detail">
+          <details>
+            <summary>
+              <span class="collapsible-panel-heading">
+                <span class="collapsible-panel-title">
+                  <h3>素材明细</h3>
+                  <span class="metric-info" role="img" title="按素材编号、标准产品和素材分类聚合；国家、地区、投手仅作为筛选条件，按花费排序" aria-label="素材编号明细口径">i</span>
+                </span>
+                <span class="collapsible-panel-action" aria-hidden="true"></span>
+              </span>
+            </summary>
+            <div class="collapsible-panel-body">
+              <div class="table-wrap">
+                <table id="creativeDetailTable"></table>
+              </div>
+            </div>
+          </details>
         </article>
         </div>
 
         <section class="creative-view-mode hidden" data-creative-view="decision" aria-label="扩量决策">
-          <div id="creativeDecisionAudit" class="creative-audit-bar" role="status"></div>
+          <div id="creativeDecisionAudit" class="creative-audit-bar" role="status">
+            <button type="button" class="ghost-button" data-export-scale-queue>导出可扩量队列</button>
+          </div>
+          <details class="creative-decision-guide">
+            <summary>判定规则</summary>
+            <div class="creative-decision-guide-body">
+              <p><strong>时间：</strong>近3天固定以页面选择的结束日期为截止日，历史基准固定取此前7天；开始日期不会改变决策窗口。若截止日无数据会明确提示，不会自动向前顺延。</p>
+              <p><strong>扩量：</strong>近3天 ROI ≥ 2 且转化 ≥ 5；1–4单归入高潜，零成交不会进入高潜。</p>
+              <p><strong>衰退：</strong>近3天对比此前7天，历史曾有效、花费可比，且 ROI 下降 ≥ 15% 并伴随 CVR、地区校正 CPA 或转化下降。</p>
+              <p><strong>停投：</strong>零成交且地区标准化预期转化 ≥ 1.5，或连续两个观察周期 ROI 未达2；CPA按地区与产品校正。</p>
+              <p><strong>排名：</strong>只作辅助；仅当某产品没有素材达到 ROI 2 时，显示品内相对优选，不等同于可扩量。</p>
+            </div>
+          </details>
           <div class="creative-decision-grid">
             <article class="panel creative-decision-panel">
-              <header><div><h3>可扩量 Top10</h3><p>同组效率领先且证据充分</p></div></header>
+              <header><div><h3>可扩量 Top10</h3><p>近3天 ROI ≥ 2、转化 ≥ 5，且无衰退预警</p></div></header>
               <div id="creativeScaleList" class="creative-card-list"></div>
             </article>
             <article class="panel creative-decision-panel">
-              <header><div><h3>高潜待验证</h3><p>效率信号领先，样本仍需累积</p></div></header>
+              <header><div><h3>高潜待验证</h3><p>近3天 ROI ≥ 2、已有1–4个转化，继续积累样本</p></div></header>
               <div id="creativePotentialList" class="creative-card-list"></div>
             </article>
             <article class="panel creative-decision-panel">
-              <header><div><h3>疲劳预警</h3><p>可比花费下效率出现同步衰退</p></div></header>
+              <header><div><h3>衰退预警</h3><p>素材自身近3天较此前7天效率明显回落</p></div></header>
               <div id="creativeFatigueList" class="creative-card-list"></div>
             </article>
             <article class="panel creative-decision-panel">
-              <header><div><h3>低效停投候选</h3><p>样本充分且落入同组后四分位</p></div></header>
+              <header><div><h3>低效停投候选</h3><p>零成交花费已充分，或连续两个观察周期未达标</p></div></header>
               <div id="creativePauseList" class="creative-card-list"></div>
             </article>
           </div>
+          <details class="creative-decision-supplement">
+            <summary>查看品内相对优选与数据观察</summary>
+            <div class="creative-decision-grid creative-decision-grid-secondary">
+              <article class="panel creative-decision-panel">
+                <header><div><h3>品内相对优选</h3><p>仅用于暂无素材达到 ROI 2 的产品，不代表可扩量</p></div></header>
+                <div id="creativeRelativeList" class="creative-card-list"></div>
+              </article>
+              <article class="panel creative-decision-panel">
+                <header><div><h3>数据观察</h3><p>花费不足、历史不足、预算不可比或当前信号不稳定</p></div></header>
+                <div id="creativeObserveList" class="creative-card-list"></div>
+              </article>
+            </div>
+          </details>
         </section>
 
         <section class="creative-view-mode hidden" data-creative-view="content" aria-label="内容洞察">
           <div id="creativeContentAudit" class="creative-audit-bar" role="status"></div>
+          <div id="creativeContentSummary" class="creative-content-summary"></div>
           <article class="panel creative-content-panel">
-            <header><div><h3>图文内容方向</h3><p>仅汇总已查看原素材并完成内容标注的记录</p></div></header>
+            <header><div><h3>促销与非促销对比</h3><p>统计当前周期内有花费的在投素材；促销作为独立商业机制分析，不改变内容方向，未完成标注的素材单独列出</p></div></header>
+            <div class="table-wrap"><table id="creativePromotionSummaryTable"></table></div>
+          </article>
+          <article class="panel creative-content-panel creative-selling-point-panel">
+            <header><div><h3>产品功效与组合主张</h3><p id="creativeSellingPointDescription">组合素材直接展示构成它的具体功效；没有单一功效时，保留套组、流程、选色等真实内容主张</p></div><span id="creativeSellingPointAudit" class="creative-selling-point-audit"></span></header>
+            <details class="creative-selling-point-guide">
+              <summary>卖点定义与归类边界</summary>
+              <div class="creative-selling-point-principles">
+                <strong>主卖点判定顺序</strong>
+                <span>人工复核字段 → 画面标题/问题/结果的核心承诺 → 已出现证据与 Meta 产品语义辅助消歧</span>
+                <span>消费者结果用于卖点效果比较；PDRN、烟酰胺等成分只解释“为什么”，单独记为成分依据，不参与主卖点汇总。</span>
+                <span>套组、跨品类与对比选择没有单一核心功效时，按内容主张展示，并列出画面实际命中的组合功效；同一条素材的效果不会重复分摊给子功效。</span>
+              </div>
+              <div id="creativeSellingPointDefinitions" class="creative-selling-point-definitions"></div>
+            </details>
+            <div class="table-wrap"><table id="creativeSellingPointTable"></table></div>
+            <details id="creativeSellingPointMaterialDetail" class="creative-selling-point-material-detail" hidden></details>
+          </article>
+          <div class="creative-content-toolbar" aria-label="图文方向交叉筛选">
+            <div class="creative-content-toolbar-heading">
+              <div><strong>图文方向交叉筛选</strong><span id="creativeContentActiveFilters">当前未限制，展示全部在投素材</span></div>
+              <button type="button" class="ghost-button" data-creative-content-reset>清空筛选</button>
+            </div>
+            <div class="creative-content-filter-grid">
+              <label><span class="filter-label">国家</span><span class="multi-select"><button id="creativeContentCountryFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentCountryFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">产品</span><span class="multi-select"><button id="creativeContentProductFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentProductFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">产品卖点</span><span class="multi-select"><button id="creativeContentSellingPointFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentSellingPointFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">媒介形式</span><span class="multi-select"><button id="creativeContentMediaFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentMediaFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">内容方向</span><span class="multi-select"><button id="creativeContentDirectionFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentDirectionFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">内容细分</span><span class="multi-select"><button id="creativeContentSubtypeFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentSubtypeFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">证明方式</span><span class="multi-select"><button id="creativeContentProofFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentProofFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">切入方式</span><span class="multi-select"><button id="creativeContentEntryFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentEntryFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">表达方式</span><span class="multi-select"><button id="creativeContentExplanationFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentExplanationFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">优惠机制</span><span class="multi-select"><button id="creativeContentOfferFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentOfferFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">优惠主导度</span><span class="multi-select"><button id="creativeContentOfferProminenceFilterButton" class="multi-trigger" type="button" aria-expanded="false">全部</button><span id="creativeContentOfferProminenceFilterPanel" class="multi-panel"></span></span></label>
+              <label><span class="filter-label">排序</span><select id="creativeContentSort" data-creative-content-filter="sort">
+                <option value="purchase_value">GMV</option><option value="roas">ROAS</option><option value="purchase_times">订单</option><option value="cpa">CPA</option><option value="ctr">CTR</option><option value="cvr">CVR</option>
+              </select></label>
+            </div>
+          </div>
+          <article class="panel creative-content-panel">
+            <header><div><h3>图文方向对比</h3><p>只统计当前周期内有花费的在投素材；方向按可复用内容机制汇总，产品、国家和媒介通过筛选或详情拆分</p></div></header>
             <div class="table-wrap"><table id="creativeImageContentTable"></table></div>
           </article>
+          <article class="panel creative-content-panel creative-content-material-panel">
+            <header><div><h3>当前筛选周期图文素材明细</h3><p>方向表用于看结论，明细表用于核对当前周期内每个素材的真实花费与转化表现；点击编号或缩略图查看详情</p></div></header>
+            <div class="table-wrap"><table id="creativeImageMaterialTable"></table></div>
+          </article>
           <article class="panel creative-content-panel">
-            <header><div><h3>视频内容方向</h3><p>Hook 与脚本结构独立于图文维度分析</p></div></header>
+            <header><div><h3>视频方向对比</h3><p>只统计当前周期内有花费的在投素材；Hook 与脚本结构作为视频表达特征独立分析</p></div></header>
             <div class="table-wrap"><table id="creativeVideoContentTable"></table></div>
           </article>
         </section>
@@ -402,26 +483,6 @@
             <table id="landingPageAnalysisTable"></table>
           </div>
         </article>
-        <section class="landing-detail-stack" data-module="detail">
-          <article class="panel">
-            <header>
-              <h3>落地页 x 产品</h3>
-              <button class="metric-info" type="button" title="通过落地页类型或国家筛选继续下钻" aria-label="落地页产品口径">i</button>
-            </header>
-            <div class="table-wrap">
-              <table id="landingProductTable"></table>
-            </div>
-          </article>
-          <article class="panel">
-            <header>
-              <h3>落地页 x 国家</h3>
-              <button class="metric-info" type="button" title="通过落地页类型或产品筛选继续下钻" aria-label="落地页国家口径">i</button>
-            </header>
-            <div class="table-wrap">
-              <table id="landingCountryTable"></table>
-            </div>
-          </article>
-        </section>
         <article class="panel" data-module="detail">
           <header>
             <h3>落地页 x 素材</h3>
@@ -435,10 +496,10 @@
 
       <section class="view-shell hidden" id="allChannelsView" data-page-order="conclusion,kpis,trend,structure,detail,channel-summary,channel-trend,all-channel-products,product-channel-mix,channel-product-detail">
         <div id="allChannelsModeControl" class="segmented-control page-segment-control all-channels-mode-control" aria-label="全渠道分析视图">
-          <button type="button" class="active" data-all-channels-mode="attribution" aria-pressed="true">投放归因</button>
-          <button type="button" data-all-channels-mode="sales" aria-pressed="false">销售渠道</button>
+          <button type="button" data-all-channels-mode="attribution" aria-pressed="false">投放归因</button>
+          <button type="button" class="active" data-all-channels-mode="sales" aria-pressed="true">销售渠道</button>
         </div>
-        <div class="all-channels-view" data-all-channels-view="attribution">
+        <div class="all-channels-view hidden" data-all-channels-view="attribution">
         <section id="attributionSourceHealth" class="source-health-grid" aria-label="数据源状态" data-module="conclusion"></section>
         <section id="attributionKpis" class="attribution-kpi-grid" aria-label="归因核心指标" data-module="kpis"></section>
         <section class="attribution-layout" data-module="trend">
@@ -503,11 +564,12 @@
         </article>
         </div>
 
-        <div class="all-channels-view hidden" data-all-channels-view="sales">
+        <div class="all-channels-view" data-all-channels-view="sales">
         <div class="channel-scope-bar">
           <div id="channelMarketControl" class="segmented-control" aria-label="市场范围">
             <button type="button" class="active" data-channel-market="US">美国</button>
-            <button type="button" data-channel-market="NON_US">非美国</button>
+            <button type="button" data-channel-market="NON_US_ALL">非美国完整盘（主店）</button>
+            <button type="button" data-channel-market="NON_US_COMPARE">非美国可比市场</button>
           </div>
           <div id="channelCountryFilters" class="channel-country-filters" hidden></div>
         </div>
@@ -559,25 +621,29 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-core-data.js?v=20260824-global-crossfilter-v1"></script>
+    <script src="./data/dashboard-core-data-overview_material_daily-1.js?v=20260903-product-mapping-v1"></script>
+    <script src="./data/dashboard-core-data-overview_material_daily-2.js?v=20260903-product-mapping-v1"></script>
+    <script src="./data/dashboard-core-data-overview_material_daily-3.js?v=20260903-product-mapping-v1"></script>
+    <script src="./data/dashboard-core-data.js?v=20260903-product-mapping-v1"></script>
     <script src="./src/data-loader.js?v=20260825-creative-intelligence-v2"></script>
     <script src="./src/dashboard-metrics.js?v=20260714-meta-aov"></script>
     <script src="./src/components/interactive-charts.js?v=20260824-chart-visual-v1"></script>
-    <script src="./src/components/filter-controls.js?v=20260810-region-only"></script>
+    <script src="./src/components/filter-controls.js?v=20260901-operator-filter-sort-v1"></script>
     <script src="./src/components/segmented-control.js?v=20260730-aditya-cocreate"></script>
-    <script src="./src/components/data-table.js?v=20260824-copy-nested-comparison-v2"></script>
+    <script src="./src/components/data-table.js?v=20260901-operator-filter-sort-v1"></script>
     <script src="./src/components/page-shell.js?v=20260722-product-source-split"></script>
     <script src="./src/dashboard-ui.js?v=20260720-cockpit"></script>
     <script src="./src/dashboard-state.js?v=20260825-creative-intelligence-v2"></script>
     <script src="./src/page-config.js?v=20260825-creative-intelligence-v2"></script>
     <script src="./src/render-dispatcher.js?v=20260723-render-dispatcher"></script>
-    <script src="./src/pages/country-page.js?v=20260730-aditya-cocreate"></script>
+    <script src="./src/pages/country-page.js?v=20260903-product-mapping-v1"></script>
     <script src="./src/pages/creative-page.js?v=20260730-aditya-cocreate"></script>
-    <script src="./data/dashboard-creative-intelligence-data.js?v=20260825-dms-assets-v1"></script>
-    <script src="./src/pages/creative-decision.js?v=20260825-creative-intelligence-v1"></script>
-    <script src="./src/pages/product-page.js?v=20260824-complexion-hierarchy"></script>
+    <script src="./data/dashboard-creative-intelligence-data.js?v=20260829-selling-point-claims-v6"></script>
+    <script src="./src/pages/creative-decision.js?v=20260829-selling-point-claims-v6"></script>
+    <script src="./src/product-taxonomy.js?v=20260903-product-mapping-v1"></script>
+    <script src="./src/pages/product-page.js?v=20260903-product-mapping-v1"></script>
     <script src="./src/pages/channel-page.js?v=20260730-aditya-cocreate"></script>
-    <script src="./src/product-filter-options.js?v=20260722-product-source-split"></script>
-    <script src="./src/app.js?v=20260825-creative-intelligence-v2"></script>
+    <script src="./src/product-filter-options.js?v=20260903-product-mapping-v1"></script>
+    <script src="./src/app.js?v=20260903-product-mapping-v1"></script>
   </body>
 </html>

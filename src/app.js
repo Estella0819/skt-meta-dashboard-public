@@ -25,9 +25,10 @@ const state = {
   productSegment: "overall",
   productTrendSelection: [],
   productTrendSelectionInitialized: false,
+  countryViewMode: "overview",
   creativeSegment: "type",
   creativeViewMode: "overall",
-  allChannelsMode: "attribution",
+  allChannelsMode: "sales",
   startDate: "",
   endDate: "",
   country: [],
@@ -76,8 +77,26 @@ const state = {
 };
 
 let currentCreativeDecisionModel = null;
+let currentCreativeContentExampleRows = new Map();
+const creativeContentFilters = {
+  country: [],
+  product: [],
+  media_type: [],
+  primary_selling_point: [],
+  content_direction_l1: [],
+  content_direction_l2: [],
+  proof_type: [],
+  offer_type: [],
+  offer_prominence: [],
+  entry_angle: [],
+  explanation_mode: [],
+  sort: "purchase_value",
+};
+const creativeContentExpandedDirections = new Set();
+let creativeContentExpansionInitialized = false;
 
 const filterOptions = {};
+const tableSortState = new Map();
 const allFilterKeys = DashboardPages.filterKeys();
 const pageFilterDefaults = {
   countryRegion: "ALL",
@@ -204,8 +223,16 @@ const productClassificationMap = new Map((data.product_classification || []).map
 ]));
 
 function productClass(productName) {
-  const current = String(productName || "Unknown").trim() || "Unknown";
-  const matched = productClassificationMap.get(current.toLocaleLowerCase()) || {};
+  const raw = String(productName || "").trim();
+  const current = typeof DashboardProductFilters !== "undefined"
+    && typeof DashboardProductFilters.cleanProductName === "function"
+    ? DashboardProductFilters.cleanProductName(productName)
+    : (String(productName || "Unknown").trim() || "Unknown");
+  // Prefer an explicit human mapping for the raw ad token, then fall back to
+  // the cleaned token so collaboration/post labels cannot leak into products.
+  const matched = productClassificationMap.get(raw.toLocaleLowerCase())
+    || productClassificationMap.get(current.toLocaleLowerCase())
+    || {};
   const standard = matched.standard_product_name || current;
   return {
     standard_product_name: standard,
@@ -217,6 +244,7 @@ function enrichProductFields(row) {
   const info = productClass(row?.product_name);
   return {
     ...row,
+    product_name: info.standard_product_name,
     standard_product_name: info.standard_product_name,
     product_form: info.product_form,
   };
@@ -236,11 +264,14 @@ function hasChannelData(byChannel, channel) {
 }
 
 function channelMarketLabel() {
-  return state.channelMarket === "US" ? "美国" : "非美国可比市场";
+  if (state.channelMarket === "US") return "美国";
+  if (state.channelMarket === "NON_US_ALL") return "非美国完整盘（主店）";
+  return "非美国可比市场";
 }
 
 function channelMarketCountries() {
   if (state.channelMarket === "US") return ["US"];
+  if (state.channelMarket === "NON_US_ALL" && !state.channelCountries.length) return ["主店全部国家"];
   return state.channelCountries.length ? state.channelCountries : NON_US_COMPARABLE_COUNTRIES;
 }
 
@@ -359,8 +390,8 @@ function filterHref(key, value, relatedFilters = []) {
   const applyHrefFilter = (filterKey, filterValue) => {
     if (filterValue === undefined || filterValue === null || filterValue === "") return;
     if (filterKey === "region") {
-      nextState.country = countriesForRegion(filterValue);
       nextState.countryRegion = state.countryRegion === filterValue ? "ALL" : filterValue;
+      nextState.country = nextState.countryRegion === "ALL" ? [] : countriesForRegion(filterValue);
       return;
     }
     if (filterKey === "country") {
@@ -527,9 +558,17 @@ function deriveMetrics(row) {
 function passesCommonFilters(row, options = {}) {
   const page = DashboardPages.get(state.view) || {};
   const pageFilters = page.dataFilters || page.filters || [];
+  const productMatches = (candidate) => {
+    if (!Array.isArray(state.product) || state.product.length === 0) return true;
+    if (typeof DashboardProductFilters !== "undefined"
+        && typeof DashboardProductFilters.matchesAdvertisingProduct === "function") {
+      return DashboardProductFilters.matchesAdvertisingProduct(candidate, state.product);
+    }
+    return state.product.includes(candidate?.product_name) || state.product.includes(candidate?.standard_product_name);
+  };
   if (pageFilters.includes("country") && !options.ignoreCountry && state.country.length && !state.country.includes(row.country)) return false;
   if (pageFilters.includes("account") && state.account.length && !state.account.includes(row.account_name)) return false;
-  if (pageFilters.includes("product") && state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
+  if (pageFilters.includes("product") && !productMatches(row)) return false;
   if (pageFilters.includes("productForm") && state.productForm.length && !state.productForm.includes(row.product_form)) return false;
   if (pageFilters.includes("operator") && state.operator.length && !state.operator.includes(row.operator)) return false;
   if (pageFilters.includes("landingType") && state.landingType.length && !state.landingType.includes(row.landing_type || landingPageType(row))) return false;
@@ -541,6 +580,15 @@ function passesCommonFilters(row, options = {}) {
   if (pageFilters.includes("lifecycleCreativeId") && state.lifecycleCreativeId?.length
     && !state.lifecycleCreativeId.includes(DashboardCreative.lifecycleCreativeIdentity(row))) return false;
   return true;
+}
+
+function matchesAdvertisingProduct(row, selected = state.product) {
+  if (!Array.isArray(selected) || selected.length === 0) return true;
+  if (typeof DashboardProductFilters !== "undefined"
+      && typeof DashboardProductFilters.matchesAdvertisingProduct === "function") {
+    return DashboardProductFilters.matchesAdvertisingProduct(row, selected);
+  }
+  return selected.includes(row?.product_name) || selected.includes(row?.standard_product_name);
 }
 
 function assertAdsAccountContract(rows, selectedAccounts = state.account) {
@@ -611,14 +659,15 @@ function pageComparisonRows(source = metaAnalysisSource()) {
 }
 
 function countryPageModel(source = metaAnalysisSource()) {
-  const ignoreCountry = state.countryRegion !== "ALL";
-  const current = rowsForWindow(source, state.startDate, state.endDate, { ignoreCountry }).filter(isMetaAdRow);
+  // `state.country` is the canonical data filter. `countryRegion` only keeps
+  // the drill-down label, so every country-page module uses the same rows.
+  const current = rowsForWindow(source, state.startDate, state.endDate).filter(isMetaAdRow);
   const period = comparisonWindow();
   const previous = period.start && period.end
-    ? rowsForWindow(source, period.start, period.end, { ignoreCountry }).filter(isMetaAdRow)
+    ? rowsForWindow(source, period.start, period.end).filter(isMetaAdRow)
     : [];
   return {
-    ...DashboardCountry.selectModel(current, previous, {}, state.countryRegion),
+    ...DashboardCountry.selectModel(current, previous, {}, "ALL"),
     hierarchyCurrentRows: current,
     hierarchyPreviousRows: previous,
   };
@@ -658,7 +707,7 @@ function materialInventoryRowsForWindow(source = data.material_inventory, start 
   })).filter((row) => {
     if (start && row.date_start < start) return false;
     if (end && row.date_start > end) return false;
-    if (state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
+    if (!matchesAdvertisingProduct(row)) return false;
     if (state.productForm.length && !state.productForm.includes(row.product_form)) return false;
     if (state.materialType.length && !state.materialType.includes(row.material_type)) return false;
     if (state.videoSource.length && !state.videoSource.includes(row.video_source)) return false;
@@ -703,7 +752,7 @@ function shopifyRowsForWindow(source, start, end) {
     if (start && row.date_start < start) return false;
     if (end && row.date_start > end) return false;
     if (state.country.length && !state.country.includes(row.country)) return false;
-    if (state.product.length && !state.product.includes(row.product_name) && !state.product.includes(row.standard_product_name)) return false;
+    if (!matchesAdvertisingProduct(row)) return false;
     if (state.productForm.length && !state.productForm.includes(row.product_form)) return false;
     return true;
   });
@@ -779,8 +828,7 @@ function channelRowsForWindow(source, start, end) {
     if (start && row.date_start < start) return false;
     if (end && row.date_start > end) return false;
     if (row.market !== state.channelMarket) return false;
-    if (state.channelMarket === "NON_US" && state.channelCountries.length && !state.channelCountries.includes(row.country_code)) return false;
-    if (state.channelMarket === "NON_US" && !state.channelCountries.length && !NON_US_COMPARABLE_COUNTRIES.includes(row.country_code)) return false;
+    if (state.channelCountries.length && !state.channelCountries.includes(row.country_code)) return false;
     if (state.channel.length && !state.channel.includes(row.channel)) return false;
     if (state.channelProduct.length && !state.channelProduct.includes(row.product_name)) return false;
     return true;
@@ -839,33 +887,46 @@ function setMultiOptions(key, values, selected, groups = []) {
       <input type="search" placeholder="搜索选项" data-filter-search="${key}" aria-label="搜索${key}筛选项" />
     </div>
   ` : "";
-  const optionMarkup = (value, index) => {
+  const optionMarkup = (value, index, depth = 0) => {
     const id = `${key}_${index}`;
     return `
-      <label class="check-option" for="${id}" data-filter-option-row>
+      <label class="check-option filter-leaf-option depth-${depth}" for="${id}" data-filter-option-row>
         <input id="${id}" type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""} data-filter="${key}" data-filter-option />
         <span>${escapeHtml(value)}</span>
       </label>
     `;
   };
-  let optionIndex = 0;
-  const options = groups.length
-    ? groups.map((group, groupIndex) => `
-      <section class="filter-option-group" data-filter-group-row data-filter-group-label="${escapeHtml(group.label)}">
+  const groupMarkup = (group, groupIndex, depth = 0) => {
+    const children = DashboardFilters.groupChildren(group);
+    const values = children.flatMap((child) => (typeof child === "string" ? [child] : []));
+    const nested = children.filter((child) => typeof child !== "string");
+    const groupId = `${key}_group_${groupIndex}`;
+    // Product filters can contain several nested series. Start those groups
+    // collapsed so the picker shows the hierarchy first and the leaf options
+    // only after the user expands the relevant series.
+    const defaultCollapsed = key === "product" && children.length > 0;
+    const groupClass = `filter-option-group filter-depth-${depth}${defaultCollapsed ? " collapsed" : ""}`;
+    return `
+      <section class="${groupClass}" data-filter-group-row data-filter-group-label="${escapeHtml(group.label)}">
         <div class="filter-group-header">
-          <button class="filter-group-toggle" type="button" data-filter-group-toggle aria-expanded="true" aria-label="展开或收起${escapeHtml(group.label)}">›</button>
-          <label class="check-option filter-group-option" for="${key}_group_${groupIndex}">
-            <input id="${key}_group_${groupIndex}" type="checkbox" data-filter-group="${key}" />
+          <button class="filter-group-toggle" type="button" data-filter-group-toggle aria-expanded="${defaultCollapsed ? "false" : "true"}" aria-label="展开或收起${escapeHtml(group.label)}">›</button>
+          <label class="check-option filter-group-option" for="${groupId}">
+            <input id="${groupId}" type="checkbox" data-filter-group="${key}" />
             <span>${escapeHtml(group.label)}</span>
-            <span class="filter-group-count">${group.values.length}</span>
+            <span class="filter-group-count">${group.values?.length || values.length}</span>
           </label>
           <button class="filter-group-only" type="button" data-filter-group-only="${key}" aria-label="仅查看${escapeHtml(group.label)}">仅看</button>
         </div>
         <div class="filter-group-children">
-          ${group.values.map((value) => optionMarkup(value, optionIndex++)).join("")}
+          ${values.map((value) => optionMarkup(value, `${groupIndex}_${values.indexOf(value)}`, depth + 1)).join("")}
+          ${nested.map((child, childIndex) => groupMarkup(child, `${groupIndex}_${childIndex}`, depth + 1)).join("")}
         </div>
       </section>
-    `).join("")
+    `;
+  };
+  let optionIndex = 0;
+  const options = groups.length
+    ? groups.map((group, groupIndex) => groupMarkup(group, groupIndex)).join("")
     : values.map((value) => optionMarkup(value, optionIndex++)).join("");
   panel.innerHTML = `
     <div class="multi-actions">
@@ -1028,14 +1089,36 @@ function initFilters() {
         .filter(Boolean)
         .sort((left, right) => left.localeCompare(right, "zh-CN"))
       : products;
-    setMultiOptions("product", pageProducts, state.product);
+    // Keep a previously restored leaf/raw value visible without adding it to
+    // the normal option list. New selections remain at the product-series level.
+    const restoredProducts = Array.isArray(state.product) ? state.product : [];
+    const productGroups = typeof DashboardProductFilters.advertisingGroups === "function"
+      ? DashboardProductFilters.advertisingGroups(data.fact)
+      : [];
+    // Grouped product controls render only leaf values as checkboxes. Keep
+    // filterOptions aligned with those inputs so select-all and indeterminate
+    // states are calculated against the same set the user can actually pick.
+    const groupedValues = productGroups.flatMap((group) => group.values || []);
+    const missingRestored = restoredProducts.filter((value) => !groupedValues.includes(value));
+    const fallbackGroups = missingRestored.length
+      ? [...productGroups, { label: "已恢复的筛选项", children: missingRestored, values: missingRestored }]
+      : productGroups;
+    const productOptionValues = productGroups.length
+      ? [...new Set([...groupedValues, ...missingRestored])]
+      : [...new Set([...pageProducts, ...restoredProducts])];
+    setMultiOptions(
+      "product",
+      productOptionValues,
+      state.product,
+      fallbackGroups,
+    );
   }
   if (pageFilters.has("channelProduct")) {
     const channelProducts = channelProductOptions();
     setMultiOptions("channelProduct", channelProducts, state.channelProduct);
   }
   if (pageFilters.has("productForm")) {
-    const productForms = [...new Set(data.fact.map((row) => row.product_form || "待确认"))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+    const productForms = ["单品", "套组"].filter((value) => data.fact.some((row) => row.product_form === value));
     setMultiOptions("productForm", productForms, state.productForm);
   }
   if (pageFilters.has("channel")) {
@@ -2142,6 +2225,29 @@ function efficiencyLabel(row) {
 function renderTable(id, rows, columns, limit = 80, options = {}) {
   const summaryRows = options.summaryRows || rows;
   const table = document.getElementById(id);
+  const preserveHierarchy = options.preserveHierarchy
+    ?? rows.some((row) => Number.isFinite(row?._depth));
+  const localSort = tableSortState.get(id) || { key: "", direction: "desc" };
+  const sortColumn = columns.find((column) => column.key === localSort.key);
+  const sortAccessor = (row) => {
+    if (!sortColumn) return row?.[localSort.key];
+    if (typeof sortColumn.sortValue === "function") return sortColumn.sortValue(row);
+    if (typeof sortColumn.sortValue === "string") return row?.[sortColumn.sortValue];
+    if (Object.prototype.hasOwnProperty.call(row || {}, sortColumn.key)) return row[sortColumn.key];
+    return sortColumn.value ? sortColumn.value(row) : undefined;
+  };
+  const tableSort = options.sortGroup ? {
+    ...state.googleSort[options.sortGroup],
+    group: options.sortGroup,
+  } : {
+    ...localSort,
+    accessor: sortAccessor,
+    onChange(next) {
+      const nextSort = { key: next.key, direction: next.direction };
+      tableSortState.set(id, nextSort);
+      renderTable(id, rows, columns, limit, options);
+    },
+  };
   if (table) {
     table.dataset.tableFilterOwned = typeof options.onDimensionClick === "function" ? "true" : "false";
   }
@@ -2158,10 +2264,8 @@ function renderTable(id, rows, columns, limit = 80, options = {}) {
     summaryRows,
     ...(Object.hasOwn(options, "summaryData") ? { summaryData: options.summaryData } : {}),
     ...(Object.hasOwn(options, "previousSummaryData") ? { previousSummaryData: options.previousSummaryData } : {}),
-    sort: options.sortGroup ? {
-      ...state.googleSort[options.sortGroup],
-      group: options.sortGroup,
-    } : null,
+    sort: tableSort,
+    preserveHierarchy: preserveHierarchy,
     escapeHtml,
     getDimensionKey: tableFilterKey,
     dimensionHref: filterHref,
@@ -2175,15 +2279,16 @@ function renderTable(id, rows, columns, limit = 80, options = {}) {
 function addTableCopyControl(table, result) {
   const panel = table?.closest(".panel");
   const header = panel ? [...panel.children].find((child) => child.tagName === "HEADER") : null;
-  if (!header || !result) return;
+  const controlHost = header || panel?.querySelector(":scope > details > summary .collapsible-panel-heading");
+  if (!controlHost || !result) return;
 
-  header.querySelector(".table-copy-button")?.remove();
-  let status = header.querySelector(".table-copy-status");
+  controlHost.querySelector(".table-copy-button")?.remove();
+  let status = controlHost.querySelector(".table-copy-status");
   if (!status) {
     status = document.createElement("span");
     status.className = "table-copy-status";
     status.setAttribute("aria-live", "polite");
-    header.append(status);
+    controlHost.append(status);
   }
 
   const button = document.createElement("button");
@@ -2192,7 +2297,9 @@ function addTableCopyControl(table, result) {
   button.title = "复制表格";
   button.setAttribute("aria-label", "复制表格");
   button.textContent = "⧉";
-  button.addEventListener("click", async () => {
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     let copied = false;
     try {
       copied = await DashboardTable.writeClipboard(result.copyText);
@@ -2201,7 +2308,8 @@ function addTableCopyControl(table, result) {
     }
     status.textContent = copied ? "已复制表格" : "复制失败";
   });
-  header.append(button);
+  const collapseAction = controlHost.querySelector(".collapsible-panel-action");
+  controlHost.insertBefore(button, collapseAction || null);
 }
 
 function setTableInsight(tableId, text) {
@@ -2265,14 +2373,6 @@ function tableInsight(id, rows, summaryRows = rows) {
       const top = topBy("spend");
       const best = [...rows].filter((row) => getMetric(row, "spend") > 100).sort((a, b) => getMetric(b, "roas") - getMetric(a, "roas"))[0];
       return `落地页里，${label(top, ["landing_type"])} 是主要消耗，花费占比 ${pct(top?.spend_share)}。${best ? `${label(best, ["landing_type"])} 效率最好，ROAS ${ratio(best.roas)}。` : ""}`;
-    }
-    case "landingProductTable": {
-      const top = topBy("spend");
-      return `落地页产品细分里，${label(top, ["landing_type", "product_name"])} 花费最高，为 ${money(top.spend)}，ROAS ${ratio(top.roas)}。`;
-    }
-    case "landingCountryTable": {
-      const top = topBy("spend");
-      return `落地页国家细分里，${label(top, ["landing_type", "country"])} 花费最高，为 ${money(top.spend)}，ROAS ${ratio(top.roas)}。`;
     }
     case "landingMaterialTable": {
       const top = topBy("purchase_value");
@@ -2583,7 +2683,7 @@ function hierarchyLabel(row) {
     data-tree-value="${escapeHtml(row._nodeValue)}"
     data-tree-parent="${escapeHtml(row._parentValue || "")}"
     aria-expanded="${row._expandable ? String(row._expanded) : "false"}">
-    ${chevron}<span>${escapeHtml(row._nodeValue || "未分类")}</span>
+    ${chevron}<span>${escapeHtml(row._displayName || row._nodeValue || "未分类")}</span>
   </button>`;
 }
 
@@ -3123,13 +3223,17 @@ function renderChannelScopeControls() {
 
   DashboardSegments.render(marketControl, [
     { value: "US", label: "美国" },
-    { value: "NON_US", label: "非美国" },
+    { value: "NON_US_ALL", label: "非美国完整盘（主店）" },
+    { value: "NON_US_COMPARE", label: "非美国可比市场" },
   ], state.channelMarket, (value) => {
     if (value === state.channelMarket) return;
     state.channelMarket = value;
+    state.channelCountries = [];
+    state.channel = [];
+    state.channelProduct = [];
     requestRender(render, { historyMode: "replace" });
   });
-  countryFilters.hidden = state.channelMarket !== "NON_US";
+  countryFilters.hidden = state.channelMarket === "US";
   if (countryFilters.hidden) {
     countryFilters.innerHTML = "";
     return;
@@ -3142,10 +3246,15 @@ function renderChannelScopeControls() {
       <div class="multi-panel" id="channelCountriesFilterPanel"></div>
     </div>
   `;
+  const marketCountries = state.channelMarket === "NON_US_COMPARE"
+    ? NON_US_COMPARABLE_COUNTRIES
+    : [...new Set((data.channel_market_product_daily || [])
+      .filter((row) => row.market === "NON_US_ALL")
+      .map((row) => row.country_code))].sort();
   setMultiOptions(
     "channelCountries",
-    NON_US_COMPARABLE_COUNTRIES,
-    state.channelCountries.length ? state.channelCountries : NON_US_COMPARABLE_COUNTRIES
+    marketCountries,
+    state.channelCountries.length ? state.channelCountries : marketCountries
   );
 }
 
@@ -3923,6 +4032,122 @@ function renderCountryHierarchy(countryModel) {
   });
 }
 
+function renderCountryViewMode() {
+  document.querySelectorAll("[data-country-view-mode]").forEach((button) => {
+    const active = button.dataset.countryViewMode === state.countryViewMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-country-view]").forEach((view) => {
+    view.classList.toggle("hidden", view.dataset.countryView !== state.countryViewMode);
+  });
+}
+
+function compactRegionDelta(delta) {
+  if (!delta || delta.cls === "flat") return '<span class="flat">无同期</span>';
+  return deltaBadge(delta);
+}
+
+function contributionDelta(delta) {
+  if (!delta) return '<span class="flat">持平</span>';
+  return `<span class="${escapeHtml(delta.cls || "flat")}">${escapeHtml(delta.text || "持平")}</span>`;
+}
+
+function productRegionLabel(row = {}) {
+  return `
+    <span class="product-region-label">
+      <span class="tag">${escapeHtml(row.standard_product_name || "Unknown")}</span>
+      <span class="product-region-total">
+        <small>产品总 GMV</small>
+        <strong>${money(row.product_total_purchase_value || 0)}</strong>
+        ${compactRegionDelta(row.product_total_delta)}
+      </span>
+    </span>
+  `;
+}
+
+function regionPerformanceCell(metric = {}) {
+  const share = Math.max(0, Math.min(1, Number(metric.gmv_share) || 0));
+  return `
+    <span class="region-performance-cell">
+      <span class="region-contribution-head">
+        <span>
+          <small>产品 GMV 贡献</small>
+          <strong>${pct(share)}</strong>
+        </span>
+        ${contributionDelta(metric.gmv_share_delta)}
+      </span>
+      <span class="region-contribution-track" aria-label="GMV 贡献 ${pct(share)}">
+        <i style="width:${share * 100}%"></i>
+      </span>
+      <span class="region-support-metrics">
+        <span class="region-support-metric">
+          <small>GMV</small>
+          <strong>${money(metric.purchase_value || 0)}</strong>
+          ${compactRegionDelta(metric.sales_delta)}
+        </span>
+        <span class="region-support-metric">
+          <small>花费</small>
+          <strong>${money(metric.spend || 0)}</strong>
+          ${compactRegionDelta(metric.spend_delta)}
+        </span>
+        <span class="region-support-metric">
+          <small>ROAS</small>
+          <strong>${ratio(metric.roas || 0)}</strong>
+          ${compactRegionDelta(metric.roas_delta)}
+        </span>
+      </span>
+    </span>
+  `;
+}
+
+function renderProductCountryTable(countryModel) {
+  const comparisonRows = DashboardCountry.buildProductRegionComparison(
+    countryModel.hierarchyCurrentRows,
+    countryModel.hierarchyPreviousRows,
+  );
+  const summaryData = DashboardCountry.buildProductRegionSummary(
+    countryModel.hierarchyCurrentRows,
+    countryModel.hierarchyPreviousRows,
+  );
+  const leadingProduct = comparisonRows[0];
+  const leadingRegion = leadingProduct
+    ? DashboardCountry.productRegionOrder
+      .map((region) => ({ region, ...leadingProduct.regions[region] }))
+      .sort((left, right) => right.gmv_share - left.gmv_share)[0]
+    : null;
+  const insight = leadingProduct && leadingRegion
+    ? `${leadingProduct.standard_product_name} 当前总 GMV ${money(leadingProduct.product_total_purchase_value)}，其中${leadingRegion.region}贡献 ${pct(leadingRegion.gmv_share)}；占比变化按百分点展示，可直接观察产品市场重心迁移。`
+    : "当前筛选下没有可展示数据。";
+  const regionColumns = DashboardCountry.productRegionOrder.map((region) => ({
+    key: `region_${region}`,
+    label: region,
+    value: (row) => row.regions[region],
+    sortValue: (row) => row.regions[region]?.purchase_value || 0,
+    format: (metric) => regionPerformanceCell(metric),
+    summaryValue: (summary) => summary.regions[region],
+    summaryFormat: (metric) => regionPerformanceCell(metric),
+    summaryDelta: false,
+    num: true,
+  }));
+  renderTable("countryDetailTable", comparisonRows, [
+    {
+      key: "standard_product_name",
+      label: "产品 / 总 GMV",
+      sticky: true,
+      filterKey: "standard_product_name",
+      value: (row) => row,
+      filterValue: (row) => row.standard_product_name,
+      sortValue: (row) => row.product_total_purchase_value || 0,
+      format: (row) => productRegionLabel(row),
+    },
+    ...regionColumns,
+  ], Number.POSITIVE_INFINITY, {
+    summaryData,
+    insight,
+  });
+}
+
 function renderCountryPage(countryModel) {
   const scope = state.countryRegion === "ALL"
     ? (state.country.length ? `已选 ${state.country.length} 个国家` : "全部地区")
@@ -3940,19 +4165,8 @@ function renderCountryPage(countryModel) {
     { ariaLabel: "地区 GMV 结构" },
   );
   renderCountryHierarchy(countryModel);
-
-  renderTable("countryDetailTable", countryModel.countries, [
-    { key: "country", label: "国家", sticky: true, filterKey: "country" },
-    { key: "standard_product_name", label: "标准产品", filterKey: "standard_product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", value: (row) => row, format: (row) => metricWithDelta(row, "cpa", money, "cpa_delta", true), summaryValue: (row) => row.cpa, summaryFormat: money, num: true },
-    { key: "ctr", label: "CTR", value: (row) => row, format: (row) => metricWithDelta(row, "ctr", pct, "ctr_delta"), summaryValue: (row) => row.ctr, summaryFormat: pct, num: true },
-    { key: "cvr", label: "CVR", value: (row) => row, format: (row) => metricWithDelta(row, "cvr", pct, "cvr_delta"), summaryValue: (row) => row.cvr, summaryFormat: pct, num: true },
-  ], 100, { previousSummaryRows: countryModel.previousCountries });
+  renderProductCountryTable(countryModel);
+  renderCountryViewMode();
 }
 
 function renderCountryTrend(countryModel) {
@@ -4045,12 +4259,23 @@ function renderCreativeHierarchy(creativeModel) {
 }
 
 function creativeDecisionLabel(decision) {
-  return ({ scale: "可扩量", potential: "待验证", fatigue: "疲劳预警", pause: "停投候选", remake: "建议重做", observe: "持续观察" })[decision] || "持续观察";
+  return ({
+    scale: "可扩量",
+    potential: "待验证",
+    fatigue: "衰退预警",
+    pause: "停投候选",
+    relative: "品内相对优选",
+    observe: "数据观察",
+  })[decision] || "数据观察";
 }
 
 function creativeTrendLabel(trend = {}) {
   if (!Number.isFinite(trend.roas_change)) return "暂无可比趋势";
-  return `ROAS ${trend.roas_change >= 0 ? "+" : ""}${pct(trend.roas_change)}`;
+  return `较前7日 ${trend.roas_change >= 0 ? "+" : ""}${pct(trend.roas_change)}`;
+}
+
+function creativeConfidenceLabel(confidence) {
+  return ({ high: "高", medium: "中", low: "低" })[confidence] || "低";
 }
 
 function handleCreativeThumbnailError(image) {
@@ -4061,56 +4286,222 @@ function handleCreativeThumbnailError(image) {
 }
 
 function creativeThumbnail(row) {
-  const thumbnail = row.asset?.thumbnail_path;
+  const thumbnail = row.asset?.local_thumbnail_path || row.asset?.thumbnail_path;
   if (!thumbnail) return '<div class="creative-thumbnail-placeholder">未匹配缩略图</div>';
   return `<img class="creative-thumbnail" src="${escapeHtml(thumbnail)}" alt="${escapeHtml(row.material_id)} 素材缩略图" loading="lazy" referrerpolicy="no-referrer" onerror="handleCreativeThumbnailError(this)">`;
 }
 
 function creativeDecisionCard(row) {
-  const evidence = row.evidence_status === "sufficient" ? "证据充分" : "样本不足";
-  const benchmark = row.benchmark_status === "formal"
-    ? `正式基准 · ${row.peer_group_size} 条`
-    : row.benchmark_status === "directional" ? `方向性基准 · ${row.peer_group_size} 条` : "同组样本不足";
+  const regionCount = (row.region_performance || []).filter((item) => item.region !== "未识别地区").length;
   return `
     <button type="button" class="creative-decision-card" data-creative-decision-id="${escapeHtml(row.creative_key)}">
       ${creativeThumbnail(row)}
       <span class="creative-card-body">
         <span class="creative-card-title">${escapeHtml(row.material_id)}</span>
-        <span class="creative-card-context">${escapeHtml(row.country)} · ${escapeHtml(row.standard_product_name)} · ${escapeHtml(row.material_type)}</span>
+        <span class="creative-card-context">近3日 · ${escapeHtml(row.standard_product_name)} · ${escapeHtml(row.material_type)} · 覆盖 ${number(regionCount)} 个地区</span>
         <span class="creative-card-metrics">
           <span>花费 <strong>${money(row.spend)}</strong></span><span>GMV <strong>${money(row.purchase_value)}</strong></span>
           <span>订单 <strong>${number(row.purchase_times)}</strong></span><span>ROAS <strong>${ratio(row.roas)}</strong></span>
           <span>CPA <strong>${row.cpa === null ? "-" : money(row.cpa)}</strong></span><span>AOV <strong>${row.aov === null ? "-" : money(row.aov)}</strong></span>
         </span>
-        <span class="creative-card-footer"><span>${evidence}</span><span>${benchmark}</span><span>${creativeTrendLabel(row.trend)}</span></span>
+        <span class="creative-card-footer">
+          <span class="decision-tag decision-tag-primary">${creativeDecisionLabel(row.decision)}</span>
+          <span class="decision-tag">${escapeHtml(row.region_label)}</span>
+          <span class="decision-tag">${creativeTrendLabel(row.trend)}</span>
+        </span>
       </span>
     </button>`;
 }
 
+function creativeRegionBreakdown(row) {
+  const regions = (row.region_performance || []).filter((item) => item.region !== "未识别地区");
+  if (!regions.length) return '<p class="creative-region-empty">暂无达到展示条件的地区数据</p>';
+  return `
+    <div class="creative-region-grid">
+      ${regions.map((item) => `
+        <section class="creative-region-item">
+          <strong>${escapeHtml(item.region)}</strong>
+          <dl>
+            <div><dt>花费</dt><dd>${money(item.spend)}</dd></div>
+            <div><dt>GMV</dt><dd>${money(item.purchase_value)}</dd></div>
+            <div><dt>ROAS</dt><dd>${ratio(item.roas)}</dd></div>
+            <div><dt>CPA</dt><dd>${item.cpa === null ? "-" : money(item.cpa)}</dd></div>
+            <div><dt>订单</dt><dd>${number(item.purchase_times)}</dd></div>
+          </dl>
+        </section>`).join("")}
+    </div>`;
+}
+
 function renderCreativeDecisionLists(model) {
-  [["creativeScaleList", "scale"], ["creativePotentialList", "potential"], ["creativeFatigueList", "fatigue"], ["creativePauseList", "pause"]]
+  [
+    ["creativeScaleList", "scale"],
+    ["creativePotentialList", "potential"],
+    ["creativeFatigueList", "fatigue"],
+    ["creativePauseList", "pause"],
+    ["creativeRelativeList", "relative"],
+    ["creativeObserveList", "observe"],
+  ]
     .forEach(([id, decision]) => {
       const rows = (model.lists[decision] || []).slice(0, 10);
-      document.getElementById(id).innerHTML = rows.length
+      const target = document.getElementById(id);
+      if (!target) return;
+      target.innerHTML = rows.length
         ? rows.map(creativeDecisionCard).join("")
         : '<p class="creative-empty-state">当前筛选范围暂无符合条件的素材</p>';
     });
   const audit = model.match_audit;
+  const window = model.decision_window || {};
+  const recentRange = window.recent_start && window.anchor_date
+    ? `${window.recent_start} 至 ${window.anchor_date}`
+    : "当前可用日期";
+  const baselineRange = window.baseline_start && window.baseline_end
+    ? `${window.baseline_start} 至 ${window.baseline_end}`
+    : "暂无历史基准";
+  const availability = window.anchor_has_data
+    ? "截止日数据已到齐"
+    : `截止日暂无数据，当前最大可用日期 ${window.max_available_date || "未知"}`;
   document.getElementById("creativeDecisionAudit").innerHTML = `
-    <strong>决策样本 ${number(audit.total_creatives)} 条</strong>
-    <span>正式基准仅在同国家、同产品、同媒介内至少 8 条有效素材时启用</span>
-    <span>缩略图匹配 ${number(audit.matched_assets)}/${number(audit.total_creatives)}</span>`;
+    <strong>近3日决策样本 ${number(audit.total_creatives)} 条</strong>
+    <span>决策周期：${escapeHtml(recentRange)}</span>
+    <span>历史基准：${escapeHtml(baselineRange)}</span>
+    <span class="${window.anchor_has_data ? "decision-data-ready" : "decision-data-warning"}">${escapeHtml(availability)}</span>
+    <span>ROI 2.0 为统一粗筛线，CPA 按地区校正</span>
+    <span>缩略图匹配 ${number(audit.matched_assets)}/${number(audit.total_creatives)}</span>
+    <button type="button" class="ghost-button" data-export-scale-queue>导出可扩量队列</button>`;
+}
+
+function exportScaleQueue() {
+  const rows = (currentCreativeDecisionModel?.lists?.scale || []).map((row) => ({
+    material_code: row.material_code || row.material_id,
+    source_filename: row.asset?.source_filename || row.asset?.material_name || row.material_name || "",
+    selected: true,
+    decision: row.decision,
+    decision_confidence: row.decision_confidence,
+    region_label: row.region_label,
+    region_performance: row.region_performance || [],
+    standard_product_name: row.standard_product_name,
+    product_name: row.product_name,
+    material_type: row.material_type,
+    material_name: row.material_name,
+    metrics_snapshot: {
+      spend: row.spend,
+      purchase_times: row.purchase_times,
+      purchase_value: row.purchase_value,
+      roas: row.roas,
+      cpa: row.cpa,
+    },
+  }));
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const payload = {
+    schema_version: "1.0",
+    generated_at: now.toISOString(),
+    source: "meta-dashboard",
+    queue_id: `scale-${stamp}`,
+    selection_mode: "all-scale-rows",
+    items: rows,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `scale_queue_${stamp}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function creativeCoverageCell(row) {
+  const regions = row.regions || [];
+  const products = row.products || [];
+  const summary = `${number(row.product_coverage_count)} 产品 · ${number(row.region_coverage_count ?? regions.length)} 地区`;
+  const detail = [
+    products.length ? `产品：${products.join("、")}` : "产品：未识别",
+    regions.length ? `地区：${regions.join("、")}` : "地区：未识别",
+  ].join("\n");
+  return `<details class="creative-coverage-details"><summary title="${escapeHtml(detail)}">${escapeHtml(summary)} <span aria-hidden="true">⌄</span></summary><div><strong>地区</strong><span>${escapeHtml(regions.join("、") || "未识别")}</span><strong>产品</strong><span>${escapeHtml(products.join("、") || "未识别")}</span></div></details>`;
+}
+
+function creativeContentDimensionDetails(row) {
+  const entryAngles = row.entry_angle_breakdown || [];
+  const explanationModes = row.explanation_mode_breakdown || [];
+  const section = (label, key, values) => `
+    <section class="creative-dimension-breakdown-section">
+      <h4>${label}</h4>
+      ${values.map((item) => {
+        const representative = item.representative;
+        const thumbnail = representative?.asset?.local_thumbnail_path || representative?.asset?.thumbnail_path;
+        return `<div class="creative-dimension-breakdown-row">
+          <button type="button" class="creative-dimension-filter" data-creative-content-dimension-key="${key}" data-creative-content-dimension-value="${escapeHtml(item.value)}" title="加入${label}筛选">
+            <strong>${escapeHtml(contentDimensionLabel(item.value))}</strong>
+            <span>${number(item.creative_count)} 素材 · ${money(item.spend)} · ROAS ${ratio(item.roas)}</span>
+          </button>
+          ${representative ? `<button type="button" class="creative-dimension-example" data-creative-content-example-id="${escapeHtml(representative.creative_key)}" title="查看代表素材 ${escapeHtml(representative.material_id)}">
+            ${thumbnail
+              ? `<img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(representative.material_id)}" loading="lazy" referrerpolicy="no-referrer" onerror="handleCreativeThumbnailError(this)">`
+              : '<span class="creative-dimension-example-placeholder">无图</span>'}
+            <small>${escapeHtml(representative.material_id || "-")}</small>
+          </button>` : ""}
+        </div>`;
+      }).join("") || '<p class="creative-dimension-breakdown-empty">暂无可分析素材</p>'}
+    </section>`;
+  return `<details class="creative-dimension-details">
+    <summary>${number(entryAngles.length)} 种切入 · ${number(explanationModes.length)} 种表达 <span aria-hidden="true">⌄</span></summary>
+    <div class="creative-dimension-breakdown">
+      ${section("切入方式", "entry_angle", entryAngles)}
+      ${section("表达方式", "explanation_mode", explanationModes)}
+    </div>
+  </details>`;
 }
 
 function contentInsightColumns(isVideo) {
   const dimensions = [
-    { key: "content_direction_l1", label: "内容方向" },
-    { key: "content_direction_l2", label: "内容细分" },
-    { key: "proof_type", label: "证明方式" },
+    { key: "content_direction_l1", label: "内容方向", format: contentDimensionLabel },
+    { key: "content_direction_l2", label: "内容细分", format: contentDimensionLabel },
+    { key: "proof_type", label: "证明方式", format: creativeProofTypeLabel },
+    { key: "entry_angle", label: "切入方式", format: contentDimensionLabel },
+    { key: "explanation_mode", label: "表达方式", format: contentDimensionLabel },
+    { key: "offer_type", label: "优惠机制", format: contentDimensionLabel },
   ];
-  if (isVideo) dimensions.push({ key: "hook_type", label: "Hook" }, { key: "script_structure", label: "脚本结构" });
+  if (isVideo) dimensions.push(
+    { key: "hook_type", label: "Hook", format: contentDimensionLabel },
+    { key: "script_structure", label: "脚本结构", format: contentDimensionLabel },
+  );
+  if (isVideo) dimensions.push({
+    key: "review_status",
+    label: "复核状态",
+    format: (value) => ({
+      reviewed_original_asset: "已复核原素材",
+      reviewed_dynamic_image_proxy: "已复核动态代理图",
+      pending_full_video_review: "待完整视频复核",
+    }[value] || (value ? contentDimensionLabel(value) : "状态未记录")),
+  });
   return [
     ...dimensions,
+    { key: "creative_count", label: "素材数", format: number, num: true },
+    {
+      key: "coverage",
+      label: "覆盖范围",
+      format: (_value, row) => creativeCoverageCell(row),
+    },
+    { key: "spend", label: "花费", format: money, num: true },
+    { key: "purchase_value", label: "GMV", format: money, num: true },
+    { key: "purchase_times", label: "订单", format: number, num: true },
+    { key: "roas", label: "ROAS", format: ratio, num: true },
+    { key: "cpa", label: "CPA", format: (value) => value === null ? "-" : money(value), num: true },
+    { key: "ctr", label: "CTR", format: pct, num: true },
+    { key: "cvr", label: "CVR", format: pct, num: true },
+    { key: "aov", label: "AOV", format: (value) => value === null ? "-" : money(value), num: true },
+    {
+      key: "conclusion_status",
+      label: "样本状态",
+      format: (value) => value === "supported" ? "样本充足" : "方向参考",
+    },
+  ];
+}
+
+function promotionSummaryColumns() {
+  return [
+    { key: "offer_prominence", label: "促销角色", format: contentDimensionLabel },
     { key: "creative_count", label: "素材数", format: number, num: true },
     { key: "spend", label: "花费", format: money, num: true },
     { key: "purchase_value", label: "GMV", format: money, num: true },
@@ -4120,37 +4511,977 @@ function contentInsightColumns(isVideo) {
     { key: "ctr", label: "CTR", format: pct, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
     { key: "aov", label: "AOV", format: (value) => value === null ? "-" : money(value), num: true },
-    { key: "conclusion_status", label: "结论强度", format: (value) => value === "supported" ? "可形成方向结论" : "仅作案例展示" },
   ];
 }
 
-function renderCreativeContentInsights(model) {
-  renderTable("creativeImageContentTable", model.content_insights.filter((row) => row.media_type !== "video"), contentInsightColumns(false), Number.POSITIVE_INFINITY);
-  renderTable("creativeVideoContentTable", model.content_insights.filter((row) => row.media_type === "video"), contentInsightColumns(true), Number.POSITIVE_INFINITY);
-  const audit = model.match_audit;
-  document.getElementById("creativeContentAudit").innerHTML = `
-    <strong>内容标注 ${number(audit.matched_tags)}/${number(audit.total_creatives)}</strong>
-    <span>未查看原素材的 ${number(audit.unmatched_tags)} 条记录不参与内容方向结论</span>
-    <span>每个内容方向至少 3 条素材才标记为“可形成方向结论”</span>`;
+function imageContentDirectionColumns() {
+  return [
+    {
+      key: "content_direction_l1",
+      label: "内容方向",
+      sticky: true,
+      filterKey: false,
+      format: (_value, row) => {
+        if (row.row_type === "child") {
+          return `<span class="creative-content-child-label">${escapeHtml(contentDimensionLabel(row.content_direction_l2))}</span>`;
+        }
+        const expanded = creativeContentExpandedDirections.has(row.content_direction_l1);
+        const childCount = row.children?.length || 0;
+        const subtypePreview = (row.children || [])
+          .map((child) => `<span>${escapeHtml(contentDimensionLabel(child.content_direction_l2))}</span>`)
+          .join("");
+        return `<button type="button" class="creative-content-expand" data-creative-content-expand="${escapeHtml(row.content_direction_l1)}" aria-expanded="${expanded}" aria-label="${expanded ? "收起" : "展开"}${escapeHtml(contentDimensionLabel(row.content_direction_l1))}的内容细分">
+          <span aria-hidden="true">${expanded ? "▼" : "▶"}</span>
+          <span class="creative-content-heading">
+            <span class="creative-content-heading-title">
+              <strong>${escapeHtml(contentDimensionLabel(row.content_direction_l1))}</strong>
+              <small>${number(childCount)} 个细分</small>
+            </span>
+            <span class="creative-content-subtype-preview${childCount === 4 ? " is-four" : ""}">${subtypePreview}</span>
+          </span>
+        </button>`;
+      },
+    },
+    {
+      key: "content_definition",
+      label: "内容定义",
+      format: (_value, row) => creativeContentDefinition(row),
+    },
+    {
+      key: "representatives",
+      label: "代表素材",
+      format: (_value, row) => row.row_type === "child" ? creativeContentRepresentativeStrip(row) : "-",
+    },
+    { key: "content_dimensions", label: "切入与表达", format: (_value, row) => creativeContentDimensionDetails(row) },
+    { key: "creative_count", label: "素材数", format: number, num: true },
+    {
+      key: "coverage",
+      label: "覆盖范围",
+      format: (_value, row) => creativeCoverageCell(row),
+    },
+    {
+      key: "spend",
+      label: "花费 / GMV",
+      num: true,
+      format: (_value, row) => creativeContentMetricPair(money(row.spend), money(row.purchase_value)),
+    },
+    {
+      key: "purchase_times",
+      label: "订单 / AOV",
+      num: true,
+      format: (_value, row) => creativeContentMetricPair(number(row.purchase_times), row.aov === null ? "-" : money(row.aov)),
+    },
+    {
+      key: "roas",
+      label: "ROAS / CPA",
+      num: true,
+      format: (_value, row) => creativeContentMetricPair(ratio(row.roas), row.cpa === null ? "-" : money(row.cpa)),
+    },
+    {
+      key: "ctr",
+      label: "CTR / CVR",
+      num: true,
+      format: (_value, row) => creativeContentMetricPair(pct(row.ctr), pct(row.cvr)),
+    },
+    {
+      key: "conclusion_status",
+      label: "样本状态",
+      format: (value) => value === "supported"
+        ? '<span class="creative-content-status supported" title="至少 3 个当前周期在投去重素材，可做初步方向比较">样本充足</span>'
+        : '<span class="creative-content-status example" title="少于 3 个当前周期在投去重素材，仍保留展示但仅作方向性参考">方向参考</span>',
+    },
+  ];
 }
 
-function renderCreativeDecisionDetail(creativeKey) {
-  const row = currentCreativeDecisionModel?.creatives.find((item) => item.creative_key === creativeKey);
+function creativeContentMaterialColumns() {
+  return [
+    {
+      key: "material_id",
+      label: "素材",
+      sticky: true,
+      format: (_value, row) => {
+        const thumbnail = row.asset?.local_thumbnail_path || row.asset?.thumbnail_path;
+        const image = thumbnail
+          ? `<img class="creative-material-thumb" src="${escapeHtml(thumbnail)}" alt="${escapeHtml(row.material_id)}" loading="lazy" referrerpolicy="no-referrer" onerror="handleCreativeThumbnailError(this)">`
+          : '<span class="creative-material-thumb creative-material-thumb-empty">无图</span>';
+        return `<button type="button" class="creative-material-cell" data-creative-content-example-id="${escapeHtml(row.creative_key)}" title="查看 ${escapeHtml(row.material_id)} 详情">${image}<span><strong>${escapeHtml(row.material_id || "-")}</strong><small>${escapeHtml(row.material_name || "")}</small></span></button>`;
+      },
+    },
+    { key: "standard_product_name", label: "Meta 产品", format: (value) => `<span class="tag">${escapeHtml(value || "未识别产品")}</span>` },
+    { key: "country", label: "国家范围", format: (value, row) => escapeHtml(value || (row.countries || []).join("、") || "Unknown") },
+    { key: "content_direction_l1", label: "方向", format: (value) => value ? contentDimensionLabel(value) : "待补标" },
+    { key: "content_direction_l2", label: "内容细分", format: (value) => value ? contentDimensionLabel(value) : "待补标" },
+    { key: "entry_angle", label: "切入方式", format: (value) => value ? contentDimensionLabel(value) : "待补标" },
+    { key: "explanation_mode", label: "表达方式", format: (value) => value ? contentDimensionLabel(value) : "待补标" },
+    { key: "decision", label: "评级", format: (value) => ({ scale: "可扩量", potential: "高潜", fatigue: "疲劳预警", pause: "停投候选", relative: "相对优选", observe: "观察" }[value] || "观察") },
+    { key: "spend", label: "花费", format: money, num: true },
+    { key: "purchase_value", label: "GMV", format: money, num: true },
+    { key: "purchase_times", label: "订单", format: number, num: true },
+    { key: "roas", label: "ROAS", format: ratio, num: true },
+    { key: "cpa", label: "CPA", format: (value) => value === null ? "-" : money(value), num: true },
+    { key: "ctr", label: "CTR", format: pct, num: true },
+    { key: "cvr", label: "CVR", format: pct, num: true },
+    { key: "aov", label: "AOV", format: (value) => value === null ? "-" : money(value), num: true },
+  ];
+}
+
+const contentDimensionLabels = {
+  efficacy_benefit: "功效卖点",
+  ingredient_formula: "成分依据",
+  texture_experience: "质地体验",
+  usage_convenience: "使用便利",
+  audience_fit: "适用人群",
+  safety_gentleness: "安全温和",
+  brightening_spot: "提亮淡斑",
+  hydration_plumping: "补水饱满",
+  barrier_soothing: "屏障修护舒缓",
+  acne_oil_pore: "祛痘控油净毛孔",
+  sun_protection: "防晒防护",
+  coverage_even_tone: "遮瑕匀肤",
+  longwear_finish: "持妆哑光",
+  glow_radiance: "水光透亮",
+  smoothing_exfoliation: "平滑焕肤",
+  lip_plump_care: "润唇淡纹",
+  firming_antiaging: "紧致抗老",
+  deep_cleansing: "深层清洁",
+  pdrn_formula: "PDRN 成分机制",
+  niacinamide_formula: "烟酰胺成分机制",
+  ceramide_formula: "神经酰胺成分机制",
+  vitamin_c_formula: "维 C 成分机制",
+  retinol_formula: "视黄醇成分机制",
+  botanical_clay_formula: "植萃泥膜成分机制",
+  lightweight_comfort: "轻薄舒适",
+  texture_absorption: "质地与吸收",
+  quick_easy_use: "快速易用",
+  skin_type_fit: "肤质适配",
+  gentle_safety: "温和低刺激",
+  multi_benefit: "多项明确卖点",
+  multi_benefit_mix: "多项明确卖点",
+  multi_concern_solution: "多问题一套解决",
+  routine_solution: "完整护理方案",
+  guided_selection: "按需求对比选择",
+  shade_selection: "色号适配",
+  social_proof_message: "口碑评价证明",
+  scenario_message: "场景化使用表达",
+  consumer_result: "消费者功效",
+  unresolved_result: "待补充明确功效",
+  unclassified: "待补充明确功效",
+  unclear: "待明确",
+  efficacy: "功效结果",
+  usage_education: "使用教育",
+  ingredient_science: "成分原理",
+  scenario: "场景需求",
+  product_education: "产品教育",
+  routine_education: "Routine 教育",
+  problem_solution: "问题解决",
+  lifestyle_solution: "生活场景解决",
+  social_proof: "社交证明",
+  comparison: "对比选择",
+  routine_before_after: "Routine 前后对比",
+  routine_steps: "Routine 步骤",
+  multi_step_routine: "多步骤 Routine",
+  seasonal_sale: "节日/季节促销",
+  bundle_gift_offer: "套组/赠品优惠",
+  gift_with_purchase: "买赠",
+  shade_match: "色号匹配",
+  benefit_comparison: "功效对比",
+  skin_concern_solution: "皮肤问题解决",
+  skin_concern_routine: "按肤质匹配 Routine",
+  night_routine: "夜间 Routine",
+  time_progression_result: "阶段性效果进展",
+  redness_rescue_routine: "泛红修护 Routine",
+  cushion_finish_comparison: "气垫妆效选择",
+  travel_routine: "旅行场景 Routine",
+  glow_vs_matte_routine: "光泽与哑光搭配",
+  summer_base_routine: "夏日轻薄底妆",
+  office_makeup_routine: "办公场景妆容",
+  customer_review: "用户评价",
+  barrier_four_step_routine: "屏障四步护理",
+  finish_skin_type_picker: "按肤质与妆效选择",
+  finish_benefit_comparison: "妆效与卖点说明",
+  five_minute_grwm: "5 分钟快速出门妆",
+  routine_bundle_discount_gift: "Routine 套组折扣赠礼",
+  buy_one_get_one: "买一赠一",
+  am_pm_brightening_routine: "早晚提亮 Routine",
+  pdrn_four_step_routine: "PDRN 四步护理",
+  ten_minute_premakeup_rescue: "10 分钟妆前急救",
+  oily_skin_powder_benefits: "油皮夏日粉底用法",
+  occasion_bundle_discount_gift: "场景套组折扣赠礼",
+  niacinamide_four_step_routine: "烟酰胺四步护理",
+  tinted_sunscreen_benefits: "有色防晒多效卖点",
+  five_step_brightening_routine: "五步提亮护理",
+  post_sun_two_step_reset: "晒后两步重置",
+  makeup_bundle_gift: "彩妆套组赠礼",
+  breakout_coverage_sunscreen: "痘肌遮盖防晒",
+  weekly_daily_brightening_duo: "周护与日护提亮组合",
+  brightening_14_day_progress: "14 天提亮进展",
+  dull_uneven_skin_routine: "暗沉不匀解决组合",
+  one_product_grwm: "单品快速出门妆",
+  niacinamide_mask_ingredients: "烟酰胺面膜成分卖点",
+  jelly_pad_usage_guide: "啫喱片用法指南",
+  everyday_base_rating: "日常底妆评分",
+  day_night_bundle_discount: "昼夜套组选购优惠",
+  brightening_21_day_progress: "21 天提亮进展",
+  clay_stick_skin_concern_picker: "按肌肤问题选泥膜棒",
+  weekly_clay_reset: "每周泥膜重置计划",
+  daily_mask_schedule: "每日面膜使用计划",
+  exfoliate_brighten_two_step: "先焕肤后提亮两步护理",
+  comment_reply_offer: "评论回复促销",
+  urgency_offer: "限时紧迫感",
+  skin_concern_picker: "肤质选择",
+  ugc_group_demo: "多人 UGC 展示",
+  daily_lifestyle_demo: "日常生活化展示",
+  occasion_routine: "场景化 Routine",
+  product_demo: "产品演示",
+  product_showcase: "产品展示",
+  before_after: "前后对比",
+  offer_message: "优惠信息",
+  benefit_comparison: "功效对比",
+  shade_comparison: "色号对比",
+  routine_steps: "步骤说明",
+  ugc_demo: "UGC 演示",
+  comment_reply: "评论回复",
+  interactive_picker: "互动选择",
+  group_creator_scene: "多人创作者场景",
+  creator_lifestyle_scene: "创作者生活场景",
+  urgency_scene: "限时紧迫场景",
+  product_hold_offer: "手持产品优惠",
+  pending_full_video_review: "待完整视频复核",
+  pending_asset_review: "待补齐素材复核",
+  reviewed_cached_dms_original_asset: "已复核 DMS 缓存原图",
+  instant_before_after: "即时前后对比",
+  multi_day_progress: "多日阶段进展",
+  single_use_result: "单次使用效果",
+  routine_overall_result: "整套护理结果",
+  step_by_step_routine: "分步骤护理流程",
+  single_product_how_to: "单品使用方法",
+  scheduled_routine: "分时 / 周期护理",
+  purchase_education: "购买路径教育",
+  am_pm_routine: "早晚分时护理",
+  periodic_plan: "周期/日历计划",
+  product_pairing_logic: "产品搭配逻辑",
+  word_of_mouth_proof: "口碑 / 评分证明",
+  product_benefit_explainer: "产品卖点说明",
+  ingredient_explainer: "成分作用说明",
+  by_skin_need: "按肤质/需求选择",
+  by_finish: "按妆效选择",
+  by_scenario: "按使用场景选择",
+  benefit_parameter_comparison: "功效参数对比",
+  direct_discount: "直接折扣",
+  bundle_value: "套组优惠",
+  limited_time_offer: "限时/节点促销",
+  promotion_offer: "其他促销机制",
+  single_product_benefits: "单品卖点展示",
+  bundle_assortment: "套组组合说明",
+  ingredient_breakdown: "成分作用拆解",
+  buy_one_get_one: "买一赠一",
+  free_gift: "赠品/满赠",
+  bundle_price: "套组价",
+  limited_time: "限时优惠",
+  price_anchor: "原价对比",
+  none: "无优惠",
+  offer_primary: "优惠主导",
+  offer_supporting: "辅助优惠",
+  offer_none: "无优惠",
+  offer_unclassified: "待标注",
+  single_product: "单品",
+  bundle_or_series: "套组 / 产品系列",
+  multi_product_combination: "多产品组合",
+  selection_set: "多选项组合",
+  product_gift: "产品 + 赠品",
+  no_gift: "无赠品",
+  pain_point: "痛点切入",
+  result: "结果切入",
+  ingredient: "成分切入",
+  scenario: "场景切入",
+  product: "产品切入",
+  price_benefit: "价格利益切入",
+  choice: "选择切入",
+  how_to: "使用切入",
+  before_after: "前后对比",
+  demonstration: "使用/过程演示",
+  comparison_proof: "并列对比证明",
+  social_proof_evidence: "用户/评分证明",
+  clinical_data: "临床/数据证明",
+  benefit_claim: "卖点文字说明",
+  ingredient_mechanism: "成分机制",
+  usage_demo: "使用演示",
+  choice_guide: "选择指南",
+  user_proof: "用户证明",
+  offer_message: "优惠信息",
+  problem_solution: "问题解决说明",
+  benefit_message: "功效说明",
+  product_benefits: "产品卖点说明",
+  benefit_explainer: "卖点说明",
+  ingredient_led_benefits: "成分功效结果",
+  product_pairing_logic: "产品搭配逻辑",
+  daily_use_scene: "日常使用场景",
+  specific_context_scene: "特定情境场景",
+  daily_scene: "日常场景",
+  travel_scene: "出行便携场景",
+  office_scene: "办公场景",
+  seasonal_scene: "季节性场景",
+  special_event_scene: "特殊场合场景",
+  quick_get_ready_scene: "快速出门场景",
+  rating_proof: "评分/销量证明",
+  creator_social_proof: "达人/用户展示",
+  makeup_problem_solution: "妆容问题解决",
+  recovery_solution: "受损急救修护",
+  purchase_confusion_solution: "购买路径疑虑解决",
+  multi_concern_solution: "多问题解决方案",
+};
+
+// `bundle_value` also exists as a content subtype for promotion. Keep the
+// selling-point context separate so a bundle's combination value is not shown
+// as an offer mechanism in the selling-point analysis.
+const creativeSellingPointContextLabels = {
+  bundle_value: "套组组合价值",
+  multi_concern_solution: "多问题一套解决",
+  routine_solution: "完整护理方案",
+  guided_selection: "按需求对比选择",
+  shade_selection: "色号适配",
+  social_proof_message: "口碑评价证明",
+  consumer_result: "消费者功效",
+  unresolved_result: "待补充明确功效",
+};
+
+const contentDirectionDefinitions = {
+  efficacy: "以可见结果、前后变化或阶段进展证明效果",
+  problem_solution: "先呈现用户问题，再给出对应解决方案",
+  usage_education: "解释产品怎么用、按什么顺序用或如何搭配",
+  ingredient_science: "历史标签：现作为表达方式保留，不再单独作为内容方向",
+  comparison: "把两个或多个选择并排，帮助用户做决定",
+  social_proof: "使用评价、评分、达人或用户证言建立信任",
+  scenario: "把产品放入具体时间、地点、人群或需求场景",
+  product_showcase: "以产品、质地、套组和核心卖点为画面主体",
+  instant_before_after: "同一画面直接比较使用前后或妆前妆后",
+  ingredient_led_benefits: "以成分解释支撑具体功效或结果",
+  multi_day_progress: "用多个日期节点展示连续变化",
+  single_use_result: "突出一次或短时间使用后的即时效果",
+  routine_overall_result: "展示完整护理或妆容流程带来的整体结果",
+  step_by_step_routine: "用数字、箭头或顺序展示多步骤流程",
+  single_product_how_to: "说明单个产品的具体使用动作和方法",
+  scheduled_routine: "按早晚、日期、周期或频次安排使用",
+  purchase_education: "解释购买渠道、优惠识别或下单路径，降低购买疑虑",
+  product_pairing_logic: "解释多个产品为什么以及如何搭配",
+  single_product_benefits: "围绕单个产品集中展示功能、质地或卖点",
+  bundle_assortment: "陈列多个产品并说明套组、系列或组合价值",
+  ingredient_breakdown: "逐项说明关键成分及其对应作用",
+  by_skin_need: "按肤质、痛点或需求推荐不同选择",
+  by_finish: "按妆效、质感或最终效果进行选择",
+  by_scenario: "按使用场景或时间需求比较方案",
+  benefit_parameter_comparison: "按功能、参数或卖点进行并排比较",
+  skin_concern_solution: "从具体皮肤问题切入并给出护理方案",
+  makeup_problem_solution: "从底妆、遮瑕或持妆问题切入解决",
+  recovery_solution: "围绕泛红、晒后或受损状态提供急救修护",
+  word_of_mouth_proof: "以可识别评论、评分、达人或用户证言建立可信度",
+  daily_use_scene: "在日常使用或快速出门情境中展示产品作用",
+  specific_context_scene: "围绕旅行、办公、周末或特殊场合组织产品方案",
+  seasonal_scene: "围绕季节、天气或节点需求",
+  special_event_scene: "围绕婚礼、派对或重要活动搭配护理与妆容",
+  quick_get_ready_scene: "突出快速完成护理或妆容",
+  pain_point: "从用户痛点切入，说明一个或多个问题如何被解决",
+};
+
+function contentDimensionLabel(value) {
+  return contentDimensionLabels[value] || value || "未分类";
+}
+
+function creativeProofTypeLabel(value) {
+  return value === "none" ? "无明确证明" : contentDimensionLabel(value);
+}
+
+const sellingPointJudgementLabels = {
+  conversion: "成交型卖点",
+  click: "点击型卖点",
+  high_aov: "高客单卖点",
+  potential: "高潜待验证",
+  fatigue: "疲劳预警",
+  expression_optimize: "表达待优化",
+  weak: "弱卖点候选",
+  observe: "数据观察",
+};
+
+const sellingPointActionLabels = {
+  scale_variants: "扩量同卖点，测试新表达",
+  validate_more: "补充预算与同卖点素材",
+  refresh_expression: "保留卖点，翻新画面与切入",
+  extend_value_scene: "扩展套组与高价值场景",
+  strengthen_proof: "加强证明与落地页承接",
+  pause_or_remake: "停投或重做卖点表达",
+  test_point_combo: "测试主辅卖点组合",
+  test_new_expression: "复用卖点测试新切入",
+  add_samples: "补足素材与转化样本",
+};
+
+function creativeSellingPointMetric(point, metric) {
+  if (!point) return "-";
+  const value = point[metric];
+  if (metric === "roas") return ratio(value);
+  if (metric === "spend") return money(value);
+  return number(value);
+}
+
+function creativeSellingPointRepresentative(row) {
+  const representative = row.representative;
+  if (!representative) return '<span class="creative-content-no-example">暂无代表图</span>';
+  const thumbnail = representative.asset?.local_thumbnail_path || representative.asset?.thumbnail_path;
+  return `<button type="button" class="creative-selling-point-example" data-creative-content-example-id="${escapeHtml(representative.creative_key || representative.material_id)}" title="查看代表素材 ${escapeHtml(representative.material_id)}">
+    ${thumbnail
+      ? `<img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(representative.material_id)}" loading="lazy" referrerpolicy="no-referrer" onerror="handleCreativeThumbnailError(this)">`
+      : '<span class="creative-selling-point-placeholder">无图</span>'}
+    <span><strong>${escapeHtml(representative.material_id || "-")}</strong><small>${escapeHtml(creativeDecisionLabel(representative.decision_snapshot?.decision || representative.decision || "observe"))}</small></span>
+  </button>`;
+}
+
+function creativeSellingPointComponents(tag = {}) {
+  return [...new Set(tag.selling_point_components || [])]
+    .filter((value) => value && !["unclassified", "multi_benefit_mix"].includes(value));
+}
+
+function creativeSellingPointContextLabel(context) {
+  return creativeSellingPointContextLabels[context] || contentDimensionLabel(context);
+}
+
+function creativeSellingPointPresentation(tag = {}) {
+  const point = tag.primary_selling_point || "unclassified";
+  const context = tag.selling_point_context || "unresolved_result";
+  const components = creativeSellingPointComponents(tag);
+  const componentLabels = components.map(contentDimensionLabel);
+  const contextLabel = creativeSellingPointContextLabel(context);
+  if (point === "multi_benefit_mix") {
+    return {
+      title: componentLabels.join("、") || contextLabel,
+      subtitle: componentLabels.length ? `已识别 ${componentLabels.length} 项卖点 · ${contextLabel}` : contextLabel,
+      primary: "无单一核心功效",
+      context: contextLabel,
+      components: componentLabels,
+    };
+  }
+  if (point === "unclassified") {
+    return {
+      title: contextLabel,
+      subtitle: context === "unresolved_result" ? "内容主张 · 待补充明确功效" : "内容主张 · 画面未呈现明确消费者功效",
+      primary: "无单一核心功效",
+      context: contextLabel,
+      components: componentLabels,
+    };
+  }
+  return {
+    title: contentDimensionLabel(point),
+    subtitle: `核心功效 · ${contentDimensionLabel(tag.primary_selling_point_type)}`,
+    primary: contentDimensionLabel(point),
+    context: creativeSellingPointContextLabel(context),
+    components: components.map(contentDimensionLabel),
+  };
+}
+
+function creativeSellingPointRowPresentation(row = {}) {
+  return creativeSellingPointPresentation({
+    primary_selling_point: row.primary_selling_point,
+    primary_selling_point_type: row.primary_selling_point_type,
+    selling_point_context: row.selling_point_context || row.selling_point_contexts?.[0],
+    selling_point_components: row.selling_point_components,
+  });
+}
+
+function creativeSellingPointOverviewColumns() {
+  const pointSummary = (point, metric, suffix = "") => {
+    if (!point) return "-";
+    const presentation = creativeSellingPointRowPresentation(point);
+    return `<span class="creative-selling-point-summary"><strong>${escapeHtml(presentation.title)}</strong><small>${escapeHtml(creativeSellingPointMetric(point, metric))}${suffix}</small></span>`;
+  };
+  return [
+    {
+      key: "standard_product_name",
+      label: "产品",
+      sticky: true,
+      format: (value) => `<button type="button" class="creative-selling-point-link" data-creative-selling-product="${escapeHtml(value)}" title="查看 ${escapeHtml(value)} 的卖点明细">${escapeHtml(value)}</button>`,
+    },
+    { key: "identified_claim_count", label: "已识别功效/主张", format: number, num: true },
+    { key: "primary_by_count", label: "主力功效/主张", format: (value) => pointSummary(value, "creative_count", " 条素材") },
+    { key: "top_by_spend", label: "花费最高", format: (value) => pointSummary(value, "spend") },
+    { key: "top_by_roas", label: "ROAS 最高", format: (value) => pointSummary(value, "roas") },
+    { key: "creative_count", label: "素材数", format: number, num: true },
+  ];
+}
+
+function creativeSellingPointDetailColumns() {
+  return [
+    {
+      key: "primary_selling_point",
+      label: "功效 / 内容主张",
+      sticky: true,
+      format: (value, row) => {
+        const presentation = creativeSellingPointRowPresentation(row);
+        return `<button type="button" class="creative-selling-point-link" data-creative-selling-point="${escapeHtml(value)}" title="筛选 ${escapeHtml(presentation.title)}"><strong>${escapeHtml(presentation.title)}</strong><small>${escapeHtml(presentation.subtitle)}</small></button>`;
+      },
+    },
+    { key: "representative", label: "代表素材", format: (_value, row) => creativeSellingPointRepresentative(row) },
+    { key: "creative_count", label: "素材数", format: number, num: true },
+    { key: "spend", label: "花费 / GMV", num: true, format: (_value, row) => creativeContentMetricPair(money(row.spend), money(row.purchase_value)) },
+    { key: "purchase_times", label: "订单 / AOV", num: true, format: (_value, row) => creativeContentMetricPair(number(row.purchase_times), row.aov === null ? "-" : money(row.aov)) },
+    { key: "roas", label: "ROAS / CPA", num: true, format: (_value, row) => creativeContentMetricPair(ratio(row.roas), row.cpa === null ? "-" : money(row.cpa)) },
+    { key: "ctr", label: "CTR / CVR", num: true, format: (_value, row) => creativeContentMetricPair(pct(row.ctr), pct(row.cvr)) },
+    {
+      key: "judgement",
+      label: "判断与动作",
+      format: (value, row) => `<span class="creative-selling-point-decision ${escapeHtml(value)}"><strong>${escapeHtml(sellingPointJudgementLabels[value] || "数据观察")}</strong><small>${escapeHtml(sellingPointActionLabels[row.recommended_action] || "继续观察")}</small></span>`,
+    },
+  ];
+}
+
+function renderCreativeSellingPointDefinitions() {
+  const target = document.getElementById("creativeSellingPointDefinitions");
+  if (!target) return;
+  const definitions = DashboardCreativeDecision.sellingPointDefinitions();
+  const grouped = new Map();
+  definitions.forEach((item) => {
+    const type = contentDimensionLabel(item.type);
+    if (!grouped.has(type)) grouped.set(type, []);
+    grouped.get(type).push(item);
+  });
+  target.innerHTML = [...grouped.entries()].map(([type, items]) => `
+    <section>
+      <h4>${escapeHtml(type)}</h4>
+      <div class="creative-selling-point-definition-list">
+        ${items.map((item) => `
+          <div>
+            <strong>${escapeHtml(contentDimensionLabel(item.key))}</strong>
+            <p>${escapeHtml(item.definition)}</p>
+            <small>不包含：${escapeHtml(item.boundary)}</small>
+          </div>`).join("")}
+      </div>
+    </section>`).join("");
+}
+
+function creativeSellingPointMaterialEvidence(material) {
+  const notes = material.content_tag?.evidence_notes ?? material.evidence_notes ?? "";
+  if (Array.isArray(notes)) return notes.filter(Boolean).join("；");
+  if (notes && typeof notes === "object") return JSON.stringify(notes);
+  return String(notes || "暂无画面复核说明");
+}
+
+function creativeIngredientEvidence(tag = {}) {
+  const labels = {
+    pdrn_formula: "PDRN",
+    niacinamide_formula: "烟酰胺",
+    ceramide_formula: "神经酰胺",
+    vitamin_c_formula: "维 C",
+    retinol_formula: "视黄醇",
+    botanical_clay_formula: "植萃/泥膜",
+  };
+  return (tag.ingredient_evidence || []).map((value) => labels[value] || contentDimensionLabel(value));
+}
+
+function renderCreativeSellingPointMaterials(rows, selectedProduct) {
+  const target = document.getElementById("creativeSellingPointMaterialDetail");
+  if (!target) return;
+  if (!selectedProduct) {
+    target.hidden = true;
+    target.innerHTML = "";
+    return;
+  }
+  const materials = rows.flatMap((row) => row.materials || [])
+    .sort((left, right) => Number(right.spend || 0) - Number(left.spend || 0));
+  target.hidden = false;
+  target.innerHTML = `
+    <summary>查看 ${escapeHtml(selectedProduct)} 的 ${number(materials.length)} 条素材归类明细</summary>
+    <div class="creative-selling-point-material-list">
+      ${materials.map((material) => {
+        const tag = material.content_tag || {};
+        const thumbnail = material.asset?.local_thumbnail_path || material.asset?.thumbnail_path;
+        const presentation = creativeSellingPointPresentation(tag);
+        const secondary = tag.secondary_selling_points?.length
+          ? tag.secondary_selling_points.map(contentDimensionLabel).join("、")
+          : "无";
+        const combinationBenefits = presentation.components.join("、") || "无明确功效";
+        const ingredients = creativeIngredientEvidence(tag);
+        const supportingDetail = tag.primary_selling_point === "multi_benefit_mix"
+          ? ` · 组合功效：${combinationBenefits}`
+          : tag.primary_selling_point === "unclassified"
+            ? ""
+            : ` · 辅助功效：${secondary}`;
+        return `<button type="button" class="creative-selling-point-material" data-creative-content-example-id="${escapeHtml(material.creative_key || material.material_id)}" title="查看素材 ${escapeHtml(material.material_id)}">
+          ${thumbnail
+            ? `<img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(material.material_id)}" loading="lazy" referrerpolicy="no-referrer" onerror="handleCreativeThumbnailError(this)">`
+            : '<span class="creative-selling-point-placeholder">无图</span>'}
+          <span class="creative-selling-point-material-copy">
+            <span><strong>${escapeHtml(material.material_id || "-")}</strong><em>${escapeHtml(presentation.title)}</em></span>
+            <small>${escapeHtml(tag.selling_point_reason || "暂无归类依据")}</small>
+            <p>${escapeHtml(creativeSellingPointMaterialEvidence(material))}</p>
+            <span class="creative-selling-point-material-meta">${escapeHtml(presentation.subtitle)}${escapeHtml(supportingDetail)}${ingredients.length ? ` · 成分依据：${escapeHtml(ingredients.join("、"))}` : ""} · 花费 ${escapeHtml(money(material.spend))} · GMV ${escapeHtml(money(material.purchase_value))} · 订单 ${escapeHtml(number(material.purchase_times))}</span>
+          </span>
+        </button>`;
+      }).join("") || '<p class="creative-content-no-example">当前周期无在投素材明细</p>'}
+    </div>`;
+}
+
+function creativeContentMetricPair(primary, secondary) {
+  return `<span class="creative-content-metric-pair"><strong>${escapeHtml(primary)}</strong><small>${escapeHtml(secondary)}</small></span>`;
+}
+
+function creativeContentDefinition(row) {
+  const key = row.row_type === "child" ? row.content_direction_l2 : row.content_direction_l1;
+  const definition = contentDirectionDefinitions[key] || "按实际画面内容归纳，点击代表素材查看完整证据";
+  return `<span class="creative-content-definition"><span>${escapeHtml(definition)}</span></span>`;
+}
+
+function creativeContentTag(row, tags) {
+  const tag = tags[row.material_id] || tags[row.creative_key] || null;
+  return tag ? DashboardCreativeDecision.normalizeContentTag(tag, { product_name: row.standard_product_name }) : null;
+}
+
+function creativeContentRepresentativeStrip(row) {
+  const representatives = row.representatives || [];
+  if (!representatives.length) return '<span class="creative-content-no-example">暂无代表图</span>';
+  const roleLabels = {
+    winner: "可扩量",
+    potential: "高潜",
+    relative: "相对优选",
+    fatigue: "疲劳预警",
+    low: "低效",
+    typical: "观察",
+  };
+  return `<span class="creative-content-representatives" aria-label="代表素材">
+    ${representatives.map((item) => {
+      const thumbnail = item.asset?.local_thumbnail_path || item.asset?.thumbnail_path;
+      const role = roleLabels[item.role] || "案例";
+      const tag = item.content_tag ? DashboardCreativeDecision.normalizeContentTag(item.content_tag) : null;
+      const offer = tag?.offer_type && tag.offer_type !== "none"
+        ? `${contentDimensionLabel(tag.offer_type)} · ${contentDimensionLabel(tag.offer_prominence)}`
+        : "无优惠";
+      return `<button type="button" class="creative-content-example" data-creative-content-example-id="${escapeHtml(item.creative_key)}" title="${escapeHtml(`${role} ${item.material_id} · 近3日订单 ${Number(item.purchase_times || 0).toFixed(0)} · ROAS ${Number(item.roas || 0).toFixed(2)} · ${offer}`)}">
+        ${thumbnail
+          ? `<img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(item.material_id)}" loading="lazy" referrerpolicy="no-referrer" onerror="handleCreativeThumbnailError(this)">`
+          : '<span class="creative-content-example-placeholder">无图</span>'}
+        <span class="creative-content-example-meta"><strong>${escapeHtml(role)}</strong><small>${escapeHtml(item.material_id)}</small><small>${escapeHtml(offer)}</small></span>
+      </button>`;
+    }).join("")}
+  </span>`;
+}
+
+function creativeContentOptions(rows, tags, key) {
+  const values = new Set();
+  rows.forEach((row) => {
+    const tag = creativeContentTag(row, tags);
+    if (key === "country" || key === "product") values.add(row[key === "product" ? "standard_product_name" : key] || "Unknown");
+    else if (key === "media_type") values.add(row.material_type === "视频" ? "视频" : "图文");
+    else if (tag?.[key]) values.add(tag[key]);
+  });
+  return [...values].filter(Boolean).sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+function creativeContentSelectedValues(key) {
+  return Array.isArray(creativeContentFilters[key]) ? creativeContentFilters[key] : [];
+}
+
+function creativeContentRowValue(row, tag, key) {
+  if (key === "country") return row.country || "Unknown";
+  if (key === "product") return row.standard_product_name || "Unknown";
+  if (key === "media_type") return row.material_type === "视频" ? "视频" : "图文";
+  return tag?.[key] || "";
+}
+
+function creativeContentRowMatches(row, tags, ignoredKeys = []) {
+  const ignored = new Set(Array.isArray(ignoredKeys) ? ignoredKeys : [ignoredKeys]);
+  const tag = creativeContentTag(row, tags);
+  const keys = ["country", "product", "media_type", "primary_selling_point", "content_direction_l1", "content_direction_l2", "proof_type", "offer_type", "offer_prominence", "entry_angle", "explanation_mode"];
+  return keys.every((key) => {
+    if (ignored.has(key)) return true;
+    const selected = creativeContentSelectedValues(key);
+    if (!selected.length) return true;
+    return selected.includes(creativeContentRowValue(row, tag, key));
+  });
+}
+
+function renderCreativeContentFilters(model, tags) {
+  const rows = model.content_creatives || model.creatives;
+  const definitions = [
+    ["creativeContentCountryFilter", "country"],
+    ["creativeContentProductFilter", "product"],
+    ["creativeContentSellingPointFilter", "primary_selling_point"],
+    ["creativeContentMediaFilter", "media_type"],
+    ["creativeContentDirectionFilter", "content_direction_l1"],
+    ["creativeContentSubtypeFilter", "content_direction_l2"],
+    ["creativeContentProofFilter", "proof_type"],
+    ["creativeContentEntryFilter", "entry_angle"],
+    ["creativeContentExplanationFilter", "explanation_mode"],
+    ["creativeContentOfferFilter", "offer_type"],
+    ["creativeContentOfferProminenceFilter", "offer_prominence"],
+  ];
+  definitions.forEach(([id, key]) => {
+    const panel = document.getElementById(`${id}Panel`);
+    const button = document.getElementById(`${id}Button`);
+    if (!panel || !button) return;
+    // Each selector is populated from the other active selectors, so filters
+    // describe the currently comparable population instead of the full dataset.
+    const options = creativeContentOptions(rows.filter((row) => creativeContentRowMatches(row, tags, key)), tags, key);
+    const current = creativeContentSelectedValues(key).filter((value) => options.includes(value));
+    creativeContentFilters[key] = current;
+    const optionLabel = key === "proof_type" ? creativeProofTypeLabel : contentDimensionLabel;
+    panel.innerHTML = `
+      <div class="multi-actions"><span>${number(options.length)} 项</span><button type="button" data-creative-content-clear-key="${key}">全部</button></div>
+      <div class="multi-options">
+        ${options.map((value) => `
+          <label class="check-option">
+            <input type="checkbox" value="${escapeHtml(value)}" data-creative-content-option="${key}" ${current.includes(value) ? "checked" : ""}>
+            <span>${escapeHtml(optionLabel(value))}</span>
+          </label>`).join("") || '<p class="creative-content-filter-empty">当前组合下无可选项</p>'}
+      </div>`;
+    const selectedLabels = current.map(optionLabel);
+    button.textContent = selectedLabels.length === 0
+      ? "全部"
+      : selectedLabels.length === 1
+        ? selectedLabels[0]
+        : `${selectedLabels[0]} 等 ${selectedLabels.length} 项`;
+    button.classList.toggle("has-selection", current.length > 0);
+  });
+  const activeCount = definitions.reduce((sum, [, key]) => sum + creativeContentSelectedValues(key).length, 0);
+  const active = document.getElementById("creativeContentActiveFilters");
+  if (active) active.textContent = activeCount ? `已选 ${activeCount} 个条件，筛选项之间为交叉关系` : "当前未限制，展示全部在投素材";
+  const sort = document.getElementById("creativeContentSort");
+  if (sort) sort.value = creativeContentFilters.sort;
+}
+
+function filteredCreativeContentRows(model, tags) {
+  return (model.content_creatives || model.creatives).filter((row) => creativeContentRowMatches(row, tags));
+}
+
+function renderCreativeContentInsights(model) {
+  const intelligence = window.CREATIVE_INTELLIGENCE_DATA || {};
+  const tags = intelligence.tags || {};
+  renderCreativeContentFilters(model, tags);
+  const filteredRows = filteredCreativeContentRows(model, tags);
+  const insights = DashboardCreativeDecision.buildContentInsights(filteredRows, tags);
+  const sellingPointPerformance = DashboardCreativeDecision.buildSellingPointPerformance(filteredRows, tags);
+  const promotionSummaryRows = (model.content_creatives || []).filter((row) => (
+    Number(row.spend || 0) > 0
+    && creativeContentRowMatches(row, tags, ["offer_type", "offer_prominence"])
+  ));
+  const promotionSummary = DashboardCreativeDecision.buildPromotionSummary(
+    promotionSummaryRows,
+    tags,
+  );
+  const sortInsights = (rows) => rows.sort((left, right) => {
+    const direction = creativeContentFilters.sort === "cpa" ? 1 : -1;
+    return direction * ((Number(left[creativeContentFilters.sort]) || 0) - (Number(right[creativeContentFilters.sort]) || 0));
+  });
+  sortInsights(insights);
+  const imageParents = DashboardCreativeDecision.buildContentDirectionHierarchy(filteredRows, tags, "image");
+  currentCreativeContentExampleRows = new Map();
+  const rememberCreativeExample = (row) => {
+    if (!row) return;
+    const keys = [row.creative_key, row.material_id];
+    if (row.material_id) keys.push(`code:${row.material_id}`);
+    keys.filter(Boolean).forEach((key) => currentCreativeContentExampleRows.set(String(key), row));
+  };
+  sellingPointPerformance.detail.map((row) => row.representative).forEach(rememberCreativeExample);
+  sellingPointPerformance.detail.flatMap((row) => row.materials || []).forEach(rememberCreativeExample);
+  imageParents.flatMap((parent) => parent.children)
+    .flatMap((child) => child.representatives || [])
+    .forEach(rememberCreativeExample);
+  imageParents.flatMap((parent) => [parent, ...(parent.children || [])])
+    .flatMap((row) => [
+      ...(row.entry_angle_breakdown || []),
+      ...(row.explanation_mode_breakdown || []),
+    ])
+    .map((item) => item.representative)
+    .forEach(rememberCreativeExample);
+  sortInsights(imageParents);
+  imageParents.forEach((row) => sortInsights(row.children));
+  const availableDirections = new Set(imageParents.map((row) => row.content_direction_l1));
+  [...creativeContentExpandedDirections].forEach((direction) => {
+    if (!availableDirections.has(direction)) creativeContentExpandedDirections.delete(direction);
+  });
+  if (!creativeContentExpansionInitialized && imageParents.length) creativeContentExpansionInitialized = true;
+  const imageRows = imageParents.flatMap((parent) => [
+    { ...parent, _rowClass: "creative-content-parent-row" },
+    ...(creativeContentExpandedDirections.has(parent.content_direction_l1)
+      ? parent.children.map((child) => ({ ...child, _rowClass: "creative-content-child-row" }))
+      : []),
+  ]);
+  renderTable("creativeImageContentTable", imageRows, imageContentDirectionColumns(), Number.POSITIVE_INFINITY, {
+    summaryRows: imageParents,
+    insight: false,
+  });
+  const selectedProducts = creativeContentSelectedValues("product");
+  const sellingPointRows = selectedProducts.length === 1
+    ? sellingPointPerformance.detail.filter((row) => row.standard_product_name === selectedProducts[0])
+    : sellingPointPerformance.overview;
+  renderTable(
+    "creativeSellingPointTable",
+    sellingPointRows,
+    selectedProducts.length === 1 ? creativeSellingPointDetailColumns() : creativeSellingPointOverviewColumns(),
+    Number.POSITIVE_INFINITY,
+    { insight: false, summaryData: null },
+  );
+  renderCreativeSellingPointDefinitions();
+  renderCreativeSellingPointMaterials(
+    selectedProducts.length === 1
+      ? sellingPointPerformance.detail.filter((row) => row.standard_product_name === selectedProducts[0])
+      : [],
+    selectedProducts.length === 1 ? selectedProducts[0] : "",
+  );
+  const sellingDescription = document.getElementById("creativeSellingPointDescription");
+  if (sellingDescription) {
+    sellingDescription.textContent = selectedProducts.length === 1
+      ? `${selectedProducts[0]}：明确核心功效单独比较；套组、对比等无单一功效素材按内容主张展示具体组合功效，花费与 GMV 不重复分摊`
+      : "点击产品名称查看功效与组合主张；只有画面核心承诺进入单一功效比较，套组局部步骤不会被误作整条素材主卖点";
+  }
+  const sellingAudit = document.getElementById("creativeSellingPointAudit");
+  if (sellingAudit) {
+    const audit = sellingPointPerformance.audit;
+    sellingAudit.textContent = `已识别主张 ${number(audit.identified_claim_materials)}/${number(audit.total_materials)} · 明确功效 ${number(audit.recognized_materials)} · 待补 ${number(audit.unresolved_materials)}`;
+  }
+  const imageSourceRows = filteredRows.filter((row) => row.material_type === "图文");
+  const imageSourceByIdentity = new Map(imageSourceRows.map((row) => [
+    [row.creative_key || `code:${row.material_id}`, row.standard_product_name, row.material_type].join("||"),
+    row,
+  ]));
+  // Direction totals and material details must use the same identity: material
+  // code + Meta product + media type, with countries combined inside that row.
+  const imageMaterialRows = DashboardCreativeDecision.aggregateCreatives(imageSourceRows, { combineCountries: true })
+    .map((row) => {
+      const source = imageSourceByIdentity.get([row.creative_key, row.standard_product_name, row.material_type].join("||"));
+      const tag = source ? creativeContentTag(source, tags) : creativeContentTag(row, tags);
+      return {
+        ...row,
+        ...tag,
+        asset: source?.asset || null,
+        content_tag: tag,
+        material_name: source?.material_name || row.material_name,
+        decision: source?.decision || source?.decision_snapshot?.decision || "observe",
+      };
+    })
+    .sort((left, right) => Number(right.purchase_value || 0) - Number(left.purchase_value || 0) || Number(right.spend || 0) - Number(left.spend || 0));
+  imageMaterialRows.forEach((row) => {
+    rememberCreativeExample(row);
+  });
+  (model.content_creatives || []).forEach((row) => {
+    if (!currentCreativeContentExampleRows.has(String(row.creative_key))) rememberCreativeExample(row);
+    if (!currentCreativeContentExampleRows.has(String(row.material_id))) rememberCreativeExample(row);
+  });
+  renderTable("creativeImageMaterialTable", imageMaterialRows, creativeContentMaterialColumns(), Number.POSITIVE_INFINITY, { insight: false });
+  renderTable("creativePromotionSummaryTable", promotionSummary, promotionSummaryColumns(), Number.POSITIVE_INFINITY, {
+    insight: "促销角色只描述优惠在素材中的作用，不改变下方内容方向的归类。",
+  });
+  renderTable("creativeVideoContentTable", insights.filter((row) => row.media_type === "video"), contentInsightColumns(true), Number.POSITIVE_INFINITY);
+  const taggedFilteredRows = filteredRows.filter((row) => creativeContentTag(row, tags));
+  const uniqueMaterials = new Set(taggedFilteredRows.map((row) => row.material_id));
+  const allMetaMaterialCodes = new Set((data.ads || [])
+    .filter((row) => row.material_code)
+    .map((row) => String(row.material_code)));
+  const allTaggedMaterials = new Set(Object.entries(tags)
+    .filter(([key, tag]) => allMetaMaterialCodes.has(key) && tag?.media_type === "image")
+    .map(([key]) => key));
+  const currentPeriodMaterials = new Set(model.content_creatives?.map((row) => row.material_id) || []);
+  const scopeAudit = model.content_scope_audit || {};
+  const supported = imageParents.filter((row) => row.conclusion_status === "supported");
+  const best = supported[0] || insights.find((row) => row.conclusion_status === "supported");
+  document.getElementById("creativeContentSummary").innerHTML = `
+    <div>已标注素材总数<strong>${number(allTaggedMaterials.size)}</strong></div>
+    <div>当前周期明确编号素材<strong>${number(currentPeriodMaterials.size)}</strong></div>
+    <div>当前周期已有内容标签<strong>${number(scopeAudit.tagged_unique_materials ?? uniqueMaterials.size)}</strong></div>
+    <div>当前周期待补标<strong>${number(scopeAudit.pending_tag_unique_materials || 0)}</strong></div>
+    <div>可比较方向<strong>${number(supported.length)}</strong></div>
+    <div>当前最佳方向<strong>${escapeHtml(best ? contentDimensionLabel(best.content_direction_l1) : "暂无")}</strong></div>
+    <div>标签花费覆盖<strong>${pct(scopeAudit.tagged_spend_coverage || 0)}</strong></div>
+    <div>标签 GMV 覆盖<strong>${pct(scopeAudit.tagged_gmv_coverage || 0)}</strong></div>`;
+  const audit = model.content_match_audit || model.match_audit;
+  const imageAudit = audit.by_media_type?.image || audit;
+  const videoAudit = audit.by_media_type?.video;
+  const missingOriginalImageAssets = Math.max(
+    0,
+    Number(imageAudit.total_unique_materials || 0) - Number(imageAudit.exact_code_asset_matches || 0),
+  );
+  const unreviewedImageMaterials = Math.max(
+    0,
+    Number(imageAudit.total_unique_materials || 0) - Number(imageAudit.matched_unique_materials || 0),
+  );
+  const reviewCountsForMedia = (materialType) => {
+    const statuses = new Map();
+    (model.content_creatives || []).forEach((row) => {
+      if (row.material_type !== materialType) return;
+      const tag = creativeContentTag(row, tags);
+      if (!tag) return;
+      statuses.set(row.material_id, String(tag.review_status || ""));
+    });
+    return [...statuses.values()].reduce((counts, status) => {
+      if (status.startsWith("reviewed_")) counts.reviewed += 1;
+      else if (status) counts.pending += 1;
+      else counts.missing += 1;
+      return counts;
+    }, { reviewed: 0, pending: 0, missing: 0 });
+  };
+  const imageReview = reviewCountsForMedia("图文");
+  const videoReview = reviewCountsForMedia("视频");
+  document.getElementById("creativeContentAudit").innerHTML = `
+    <strong>图文明确编号母集 ${number(imageAudit.total_unique_materials)} 个，已有标签 ${number(imageAudit.matched_unique_materials)} 个</strong>
+    <span>产品来源：Meta · 素材来源：DMS</span>
+    <span>进入范围规则：周期内明确 SC/JJ 编号 · DMS 原图精确匹配 ${number(imageAudit.exact_code_asset_matches)} 个 · 动态代理标注 ${number(imageAudit.reviewed_proxy_materials)} 个</span>
+    <span>无 DMS 原图 ${number(missingOriginalImageAssets)} 个 · 待补内容标签 ${number(unreviewedImageMaterials)} 个 · 无有效 SC/JJ 编号排除 ${number(scopeAudit.excluded_unique_materials || 0)} 个</span>
+    <span>图文复核：已明确复核 ${number(imageReview.reviewed)} 个 · 待补原图复核 ${number(imageReview.pending)} 个 · 旧标签状态未记录 ${number(imageReview.missing)} 个</span>
+    <span>图文范围 Meta 产品冲突 ${number(imageAudit.meta_product_conflict_materials)} 个 · DMS 产品名不一致 ${number(imageAudit.dms_product_name_mismatches)} 个，仅作审计、不参与归类</span>
+    ${videoAudit ? `<span>视频标注另计：${number(videoAudit.matched_unique_materials)}/${number(videoAudit.total_unique_materials)} 个 · 已复核 ${number(videoReview.reviewed)} 个 · 待完整视频复核 ${number(videoReview.pending)} 个 · 状态未记录 ${number(videoReview.missing)} 个</span>` : ""}
+    <span>当前筛选后 ${number(new Set(filteredRows.map((row) => row.material_id)).size)} 个编号素材展示，其中 ${number(uniqueMaterials.size)} 个已有标签参与方向比较</span>
+    <span>少于 3 条当前周期在投去重素材仍保留展示，但仅作方向性参考；达到 3 条后标记为样本充足</span>`;
+}
+
+function renderCreativeDecisionDetail(creativeKey, preferContentExample = false) {
+  const matchesCreativeKey = (item) => {
+    if (!item) return false;
+    const key = String(creativeKey || "");
+    const itemKey = String(item.creative_key || "");
+    const materialId = String(item.material_id || "");
+    return itemKey === key
+      || materialId === key
+      || `code:${materialId}` === key
+      || itemKey === `code:${key}`;
+  };
+  const row = (preferContentExample ? currentCreativeContentExampleRows.get(creativeKey) : null)
+    || currentCreativeDecisionModel?.creatives?.find(matchesCreativeKey)
+    || currentCreativeDecisionModel?.content_creatives?.find(matchesCreativeKey);
   if (!row) return;
+  const contentTag = row.content_tag ? DashboardCreativeDecision.normalizeContentTag(row.content_tag, { product_name: row.standard_product_name }) : null;
+  // Batch tags may store evidence as an array, a single string, or a structured
+  // object. Normalize all forms before rendering so one malformed shape cannot
+  // prevent the detail drawer from opening.
+  const rawEvidenceNotes = row.evidence_notes ?? contentTag?.evidence_notes ?? [];
+  const evidenceNotes = Array.isArray(rawEvidenceNotes)
+    ? rawEvidenceNotes.filter(Boolean).map((note) => typeof note === "string" ? note : JSON.stringify(note))
+    : [typeof rawEvidenceNotes === "string" ? rawEvidenceNotes : JSON.stringify(rawEvidenceNotes)].filter(Boolean);
   const detail = document.getElementById("creativeDecisionDetail");
-  document.getElementById("creativeDecisionDetailBody").innerHTML = `
+  const detailBody = document.getElementById("creativeDecisionDetailBody");
+  detailBody.innerHTML = `
     <div class="creative-detail-media">${creativeThumbnail(row)}</div>
     <h4>${escapeHtml(row.material_id)}</h4>
-    <p>${escapeHtml(row.country)} · ${escapeHtml(row.standard_product_name)} · ${escapeHtml(row.material_type)}</p>
+    <p>${escapeHtml(row.standard_product_name)} · ${escapeHtml(row.material_type)} · ${number((row.countries || []).length)} 个国家 · 产品来源 Meta</p>
+    <div class="creative-detail-status">
+      <span><small>主建议</small><strong>${row.decision ? creativeDecisionLabel(row.decision) : "内容案例"}</strong></span>
+      <span><small>内容方向</small><strong>${escapeHtml(contentTag ? contentDimensionLabel(contentTag.content_direction_l2) : "未标注")}</strong></span>
+      <span><small>核心功效</small><strong>${escapeHtml(contentTag ? creativeSellingPointPresentation(contentTag).primary : "未标注")}</strong></span>
+      <span><small>内容主张</small><strong>${escapeHtml(contentTag ? creativeSellingPointPresentation(contentTag).context : "未标注")}</strong></span>
+      <span><small>组合功效</small><strong>${escapeHtml(contentTag ? creativeSellingPointPresentation(contentTag).components.join("、") || "未呈现可验证消费者卖点" : "未标注")}</strong></span>
+      <span><small>成分依据</small><strong>${escapeHtml(creativeIngredientEvidence(contentTag).join("、") || "无")}</strong></span>
+      <span><small>卖点归类依据</small><strong>${escapeHtml(contentTag?.selling_point_reason || "未记录")}</strong></span>
+      <span><small>产品形态</small><strong>${escapeHtml(contentTag ? contentDimensionLabel(contentTag.product_grouping) : "未标注")}</strong></span>
+      <span><small>赠品关系</small><strong>${escapeHtml(contentTag ? contentDimensionLabel(contentTag.gift_relation) : "未标注")}</strong></span>
+      <span><small>证明方式</small><strong>${escapeHtml(contentTag ? creativeProofTypeLabel(contentTag.proof_type) : "未标注")}</strong></span>
+      <span><small>优惠机制</small><strong>${escapeHtml(contentTag ? contentDimensionLabel(contentTag.offer_type) : "未标注")}</strong></span>
+      <span><small>优惠层级</small><strong>${escapeHtml(contentTag ? contentDimensionLabel(contentTag.offer_prominence) : "未标注")}</strong></span>
+      <span><small>地区特征</small><strong>${escapeHtml(row.region_label || "按当前筛选汇总")}</strong></span>
+    </div>
     <dl class="creative-detail-metrics">
-      <div><dt>建议动作</dt><dd>${creativeDecisionLabel(row.decision)}</dd></div>
-      <div><dt>样本状态</dt><dd>${row.evidence_status === "sufficient" ? "充分" : "不足"}</dd></div>
-      <div><dt>同组有效素材</dt><dd>${number(row.peer_group_size)}</dd></div>
-      <div><dt>ROAS / CPA</dt><dd>${ratio(row.roas)} / ${row.cpa === null ? "-" : money(row.cpa)}</dd></div>
+      <div><dt>ROI 绝对状态</dt><dd>${escapeHtml(row.roi_absolute_status || "未达标")}</dd></div>
+      <div><dt>品内排名</dt><dd>${row.peer_rank ? `第 ${number(row.peer_rank)}/${number(row.peer_total)}` : "-"}</dd></div>
+      <div><dt>品内相对位置</dt><dd>${Number.isFinite(row.peer_top_share) ? `前 ${pct(row.peer_top_share)}` : "-"}</dd></div>
+      <div><dt>近3日 ROAS / CPA</dt><dd>${ratio(row.roas)} / ${row.cpa === null ? "-" : money(row.cpa)}</dd></div>
       <div><dt>CTR / CVR</dt><dd>${pct(row.ctr)} / ${pct(row.cvr)}</dd></div>
       <div><dt>AOV</dt><dd>${row.aov === null ? "-" : money(row.aov)}</dd></div>
     </dl>
-    <div class="creative-detail-reason"><strong>判断依据</strong><p>${escapeHtml(row.evidence_notes.join("；"))}</p></div>`;
+    <div class="creative-detail-reason"><strong>判断依据</strong><p>${escapeHtml(evidenceNotes.join("；") || "当前素材已纳入内容方向案例，效果按所选国家、产品和日期范围汇总。")}</p></div>
+    <div class="creative-region-breakdown"><h5>地区效果拆解</h5>${creativeRegionBreakdown(row)}</div>`;
   detail.hidden = false;
 }
 
@@ -4165,13 +5496,20 @@ function renderCreativeViewMode() {
   });
 }
 
-function renderCreativePage(creativeModel) {
+function creativeDetailClassification(_value, row) {
+  const materialType = row.material_type || "未分类";
+  const subtype = materialType === "视频" ? String(row.video_subtype || "").trim() : "";
+  return `<span class="creative-detail-classification"><strong>${escapeHtml(materialType)}</strong>${subtype ? `<small>${escapeHtml(subtype)}</small>` : ""}</span>`;
+}
+
+function renderCreativePage(creativeModel, decisionRows = creativeModel.currentRows) {
   const intelligence = window.CREATIVE_INTELLIGENCE_DATA || {};
   currentCreativeDecisionModel = DashboardCreativeDecision.buildDecisionModel(
     creativeModel.currentRows,
     creativeModel.previousRows,
     intelligence.assets || {},
     intelligence.tags || {},
+    { anchorDate: state.endDate, decisionRows, contentScope: "explicit_material_code" },
   );
   renderCreativeDecisionLists(currentCreativeDecisionModel);
   renderCreativeContentInsights(currentCreativeDecisionModel);
@@ -4253,10 +5591,11 @@ function renderCreativePage(creativeModel) {
   ];
   renderTable("creativeProductMaterialTable", creativeModel.productMaterialMatrix, materialMatrixColumns, Number.POSITIVE_INFINITY, {
     columnGroups: [
-      { label: "", span: 2 },
-      { label: "图文", span: 3 },
-      { label: "视频", span: 3 },
-      { label: "合创", span: 3 },
+      { label: "产品", span: 1, className: "material-group-product" },
+      { label: "总览", span: 1, className: "material-group-total" },
+      { label: "图文", span: 3, className: "material-group-image" },
+      { label: "视频", span: 3, className: "material-group-video" },
+      { label: "合创", span: 3, className: "material-group-cocreate" },
     ],
     summaryData: creativeModel.productMaterialSummary,
     onDimensionClick({ filters }) {
@@ -4272,8 +5611,6 @@ function renderCreativePage(creativeModel) {
     "standard_product_name",
     "material_type",
     "video_subtype",
-    "operator",
-    "country",
   ];
   const normalizeMaterialCode = DashboardCreative.normalizeMaterialCode;
   const detailRows = aggregate(creativeModel.detail, detailDimensions).sort((left, right) => right.spend - left.spend);
@@ -4281,18 +5618,15 @@ function renderCreativePage(creativeModel) {
   renderTable("creativeDetailTable", detailRows, [
     { key: "material_code", label: "素材编号", name: true, sticky: true, format: (value) => escapeHtml(normalizeMaterialCode(value)) },
     { key: "standard_product_name", label: "标准产品", filterKey: "standard_product_name", format: (value) => `<span class="tag">${escapeHtml(value)}</span>` },
-    { key: "material_type", label: "素材类型", filterKey: "material_type", format: (value) => `<span class="tag material-tag">${escapeHtml(value || "未分类")}</span>` },
-    { key: "video_subtype", label: "视频细分", filterKey: "video_subtype", format: (value) => value ? `<span class="tag">${escapeHtml(value)}</span>` : "-" },
-    { key: "operator", label: "投手", filterKey: "operator" },
-    { key: "country", label: "国家", filterKey: "country" },
-    { key: "spend", label: "广告花费", format: money, num: true },
-    { key: "purchase_value", label: "归因收入", format: money, num: true },
+    { key: "material_type", label: "素材分类", filterKey: "material_type", format: creativeDetailClassification },
+    { key: "spend", label: "花费", format: money, num: true },
+    { key: "purchase_value", label: "GMV", format: money, num: true },
     { key: "purchase_times", label: "转化", format: number, num: true },
-    metaAovColumn({ showDelta: false }),
     { key: "roas", label: "ROAS", format: ratio, num: true },
     { key: "cpa", label: "CPA", format: money, num: true },
     { key: "ctr", label: "CTR", format: pct, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
+    metaAovColumn({ label: "AOV", showDelta: false }),
   ], Number.POSITIVE_INFINITY, { previousSummaryRows: previousDetailRows });
 }
 
@@ -4309,10 +5643,7 @@ function buildOverviewRenderModel() {
   const source = metaAnalysisSource("overview");
   const fact = pageFactRows(source);
   const previousFact = pageComparisonRows(source);
-  const overviewMaterialRows = source === data.ads
-    ? normalizedAdRows(fact)
-    : filteredRows(data.overview_material_daily || []);
-  return { fact, previousFact, overviewMaterialRows };
+  return { fact, previousFact };
 }
 
 function buildProductRenderModel() {
@@ -4336,8 +5667,12 @@ function buildCreativeRenderModel() {
   assertAdsAccountContract(data.ads || []);
   const adRows = normalizedAdRows(filteredRows(data.ads || []));
   const previousAdRows = normalizedAdRows(comparisonRows(data.ads || []));
+  const decisionHistoryStart = state.endDate ? addDays(state.endDate, -9) : state.startDate;
+  const decisionRows = normalizedAdRows(
+    rowsForWindow(data.ads || [], decisionHistoryStart, state.endDate).filter(isMetaAdRow),
+  );
   const creativeModel = creativePageModel(adRows, previousAdRows);
-  return { fact: adRows, previousFact: previousAdRows, creativeModel };
+  return { fact: adRows, previousFact: previousAdRows, creativeModel, decisionRows };
 }
 
 function buildLandingRenderModel() {
@@ -4394,12 +5729,11 @@ function renderOverviewTrend(fact) {
 }
 
 function renderOverviewPage(model) {
-  const { fact, previousFact, overviewMaterialRows } = model;
+  const { fact } = model;
   renderSharedAnalytics(model);
   renderOverviewTrend(fact);
   renderBars("countryBars", aggregate(fact, ["country"]), "country", "purchase_value", 80);
   renderBars("productBars", aggregate(fact, ["product_name"]), "product_name", "purchase_value", 80);
-  renderBars("materialBars", aggregate(overviewMaterialRows, ["material_name"]), "material_name", "spend", 120, { clickable: false });
   renderBars("overviewOperatorBars", aggregate(fact, ["operator"]), "operator", "spend", 8);
   renderAlerts(fact);
 }
@@ -4416,7 +5750,7 @@ function renderCountryRoute(model) {
 
 function renderCreativeRoute(model) {
   renderSharedAnalytics(model);
-  renderCreativePage(model.creativeModel);
+  renderCreativePage(model.creativeModel, model.decisionRows);
 }
 
 function renderLandingPage(model) {
@@ -4445,32 +5779,6 @@ function renderLandingPage(model) {
     { key: "ctr", label: "CTR", format: pct, num: true },
     { key: "cvr", label: "CVR", format: pct, num: true },
   ], 40, { previousSummaryRows: previousLandingTypeRows });
-  const landingProductRows = addComparison(aggregate(landingRows, ["landing_type", "product_name"]), previousLandingRows, ["landing_type", "product_name"]).sort((a, b) => b.spend - a.spend);
-  renderTable("landingProductTable", landingProductRows, [
-    { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "product_name", label: "产品", filterKey: "product_name", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "ctr", label: "CTR", format: pct, num: true },
-    { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "product_name"]) });
-  const landingCountryRows = addComparison(aggregate(landingRows, ["landing_type", "country"]), previousLandingRows, ["landing_type", "country"]).sort((a, b) => b.spend - a.spend);
-  renderTable("landingCountryTable", landingCountryRows, [
-    { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
-    { key: "country", label: "国家", filterKey: "country" },
-    { key: "spend", label: "广告花费", value: (row) => row, format: (row) => metricWithDelta(row, "spend", money, "spend_delta"), summaryValue: (row) => row.spend, summaryFormat: money, num: true },
-    { key: "purchase_value", label: "归因收入", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_value", money, "sales_delta"), summaryValue: (row) => row.purchase_value, summaryFormat: money, num: true },
-    { key: "purchase_times", label: "转化", value: (row) => row, format: (row) => metricWithDelta(row, "purchase_times", number, "conversion_delta"), summaryValue: (row) => row.purchase_times, summaryFormat: number, num: true },
-    metaAovColumn(),
-    { key: "roas", label: "ROAS", value: (row) => row, format: (row) => metricWithDelta(row, "roas", ratio, "roas_delta"), summaryValue: (row) => row.roas, summaryFormat: ratio, num: true },
-    { key: "cpa", label: "CPA", format: money, num: true },
-    { key: "ctr", label: "CTR", format: pct, num: true },
-    { key: "cvr", label: "CVR", format: pct, num: true },
-  ], 120, { previousSummaryRows: aggregate(previousLandingRows, ["landing_type", "country"]) });
   const landingMaterialRows = addComparison(aggregate(landingRows, ["landing_type", "material_name"]), previousLandingRows, ["landing_type", "material_name"]).sort((a, b) => b.purchase_value - a.purchase_value);
   renderTable("landingMaterialTable", landingMaterialRows, [
     { key: "landing_type", label: "落地页类型", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
@@ -5075,6 +6383,59 @@ function bindEvents() {
       requestRender(render, { historyMode: "replace" });
     }
   });
+  document.addEventListener("change", (event) => {
+    const option = event.target.closest("[data-creative-content-option]");
+    const control = event.target.closest("[data-creative-content-filter]");
+    if (!option && !control) return;
+    if (option) {
+      const key = option.dataset.creativeContentOption;
+      creativeContentFilters[key] = [...document.querySelectorAll(`[data-creative-content-option="${key}"]:checked`)]
+        .map((input) => input.value);
+    } else if (control.dataset.creativeContentFilter === "sort") {
+      creativeContentFilters.sort = control.value;
+    }
+    creativeContentExpandedDirections.clear();
+    creativeContentExpansionInitialized = false;
+    if (currentCreativeDecisionModel) renderCreativeContentInsights(currentCreativeDecisionModel);
+  });
+  document.addEventListener("click", (event) => {
+    const clearKey = event.target.closest("[data-creative-content-clear-key]");
+    const reset = event.target.closest("[data-creative-content-reset]");
+    if (!clearKey && !reset) return;
+    if (reset) {
+      Object.keys(creativeContentFilters).forEach((key) => {
+        if (key !== "sort") creativeContentFilters[key] = [];
+      });
+    } else {
+      creativeContentFilters[clearKey.dataset.creativeContentClearKey] = [];
+    }
+    creativeContentExpandedDirections.clear();
+    creativeContentExpansionInitialized = false;
+    if (currentCreativeDecisionModel) renderCreativeContentInsights(currentCreativeDecisionModel);
+  });
+  document.addEventListener("click", (event) => {
+    const dimension = event.target.closest("[data-creative-content-dimension-key]");
+    if (!dimension) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const key = dimension.dataset.creativeContentDimensionKey;
+    const value = dimension.dataset.creativeContentDimensionValue;
+    const selected = creativeContentSelectedValues(key);
+    if (value && !selected.includes(value)) creativeContentFilters[key] = [...selected, value];
+    creativeContentExpandedDirections.clear();
+    creativeContentExpansionInitialized = false;
+    if (currentCreativeDecisionModel) renderCreativeContentInsights(currentCreativeDecisionModel);
+  });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-creative-content-expand]");
+    if (!button) return;
+    event.preventDefault();
+    const direction = button.dataset.creativeContentExpand;
+    if (creativeContentExpandedDirections.has(direction)) creativeContentExpandedDirections.delete(direction);
+    else creativeContentExpandedDirections.add(direction);
+    creativeContentExpansionInitialized = true;
+    if (currentCreativeDecisionModel) renderCreativeContentInsights(currentCreativeDecisionModel);
+  });
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-drilldown-level]");
     if (!button) return;
@@ -5116,15 +6477,51 @@ function bindEvents() {
       requestRender(render, { historyMode: "replace" });
       return;
     }
+    const countryViewButton = event.target.closest("[data-country-view-mode]");
+    if (countryViewButton) {
+      state.countryViewMode = countryViewButton.dataset.countryViewMode;
+      renderCountryViewMode();
+      return;
+    }
     const viewButton = event.target.closest("[data-creative-view-mode]");
     if (viewButton) {
       state.creativeViewMode = viewButton.dataset.creativeViewMode;
       renderCreativeViewMode();
       return;
     }
+    const sellingProductButton = event.target.closest("[data-creative-selling-product]");
+    if (sellingProductButton) {
+      event.preventDefault();
+      creativeContentFilters.product = [sellingProductButton.dataset.creativeSellingProduct];
+      creativeContentFilters.primary_selling_point = [];
+      creativeContentExpandedDirections.clear();
+      creativeContentExpansionInitialized = false;
+      if (currentCreativeDecisionModel) renderCreativeContentInsights(currentCreativeDecisionModel);
+      return;
+    }
+    const sellingPointButton = event.target.closest("[data-creative-selling-point]");
+    if (sellingPointButton) {
+      event.preventDefault();
+      creativeContentFilters.primary_selling_point = [sellingPointButton.dataset.creativeSellingPoint];
+      creativeContentExpandedDirections.clear();
+      creativeContentExpansionInitialized = false;
+      if (currentCreativeDecisionModel) renderCreativeContentInsights(currentCreativeDecisionModel);
+      return;
+    }
+    const contentExampleButton = event.target.closest("[data-creative-content-example-id]");
+    if (contentExampleButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      renderCreativeDecisionDetail(contentExampleButton.dataset.creativeContentExampleId, true);
+      return;
+    }
     const decisionButton = event.target.closest("[data-creative-decision-id]");
     if (decisionButton) {
       renderCreativeDecisionDetail(decisionButton.dataset.creativeDecisionId);
+      return;
+    }
+    if (event.target.closest("[data-export-scale-queue]")) {
+      exportScaleQueue();
       return;
     }
     if (event.target.closest("[data-creative-decision-close]")) {
@@ -5277,7 +6674,8 @@ function bindEvents() {
     state.creativeExpandedSources = [];
     state.creativeSegment = "type";
     state.creativeViewMode = "overall";
-    state.allChannelsMode = "attribution";
+    state.countryViewMode = "overview";
+    state.allChannelsMode = "sales";
     state.expandedRegions = [];
     state.expandedProductSeries = [];
     initFilters();

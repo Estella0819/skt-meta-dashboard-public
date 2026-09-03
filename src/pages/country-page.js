@@ -58,6 +58,17 @@
       };
     }
 
+    function sharePointDelta(now, before) {
+      if (!before && !now) return { text: "持平", cls: "flat" };
+      if (!before) return { text: "上期无占比", cls: "flat" };
+      const points = (now - before) * 100;
+      const sign = points >= 0 ? "+" : "";
+      return {
+        text: `${sign}${points.toLocaleString("en-US", { maximumFractionDigits: 1 })}pp`,
+        cls: points >= 0 ? "up" : "down",
+      };
+    }
+
     function compareKey(row, dimensions) {
       return dimensions.map((dimension) => row[dimension] ?? "Unknown").join("||");
     }
@@ -186,6 +197,103 @@
       return output;
     }
 
+    const productRegionOrder = ["中东", "美国", "澳英加", "墨西哥"];
+
+    function normalizedProductRows(rows) {
+      return (rows || []).map((row) => ({
+        ...row,
+        standard_product_name: row.standard_product_name || row.product_name || "Unknown",
+        region: regionForCountry(row.country),
+      }));
+    }
+
+    function regionMetric(now, previous, currentTotal = 0, previousTotal = 0) {
+      const current = now || DashboardMetricsApi.summarizeRows([]);
+      const before = previous || DashboardMetricsApi.summarizeRows([]);
+      const gmvShare = currentTotal ? (current.purchase_value || 0) / currentTotal : 0;
+      const previousGmvShare = previousTotal ? (before.purchase_value || 0) / previousTotal : 0;
+      return {
+        spend: current.spend || 0,
+        purchase_value: current.purchase_value || 0,
+        roas: current.roas || 0,
+        gmv_share: gmvShare,
+        gmv_share_delta: sharePointDelta(gmvShare, previousGmvShare),
+        sales_delta: deltaText(current.purchase_value || 0, before.purchase_value || 0),
+        spend_delta: deltaText(current.spend || 0, before.spend || 0),
+        roas_delta: deltaText(current.roas || 0, before.roas || 0),
+      };
+    }
+
+    function buildProductRegionComparison(currentRows, previousRows) {
+      const current = normalizedProductRows(currentRows);
+      const previous = normalizedProductRows(previousRows);
+      const currentProducts = DashboardMetricsApi.groupRows(current, ["standard_product_name"])
+        .sort((left, right) => right.purchase_value - left.purchase_value
+          || String(left.standard_product_name).localeCompare(String(right.standard_product_name), "zh-CN"));
+      const currentByProductRegion = new Map(
+        DashboardMetricsApi.groupRows(current, ["standard_product_name", "region"])
+          .map((row) => [compareKey(row, ["standard_product_name", "region"]), row]),
+      );
+      const previousByProductRegion = new Map(
+        DashboardMetricsApi.groupRows(previous, ["standard_product_name", "region"])
+          .map((row) => [compareKey(row, ["standard_product_name", "region"]), row]),
+      );
+      const previousByProduct = new Map(
+        DashboardMetricsApi.groupRows(previous, ["standard_product_name"])
+          .map((row) => [row.standard_product_name || "Unknown", row]),
+      );
+
+      return currentProducts.map((product) => {
+        const productName = product.standard_product_name || "Unknown";
+        const currentTotal = product.purchase_value || 0;
+        const previousProduct = previousByProduct.get(productName);
+        const previousTotal = previousProduct?.purchase_value || 0;
+        const regions = {};
+        productRegionOrder.forEach((region) => {
+          const key = compareKey({ standard_product_name: productName, region }, ["standard_product_name", "region"]);
+          regions[region] = regionMetric(
+            currentByProductRegion.get(key),
+            previousByProductRegion.get(key),
+            currentTotal,
+            previousTotal,
+          );
+        });
+        return {
+          ...product,
+          standard_product_name: productName,
+          product_total_purchase_value: currentTotal,
+          product_total_delta: deltaText(currentTotal, previousTotal),
+          regions,
+        };
+      });
+    }
+
+    function buildProductRegionSummary(currentRows, previousRows) {
+      const current = normalizedProductRows(currentRows);
+      const previous = normalizedProductRows(previousRows);
+      const currentRegions = new Map(
+        DashboardMetricsApi.groupRows(current, ["region"]).map((row) => [row.region, row]),
+      );
+      const previousRegions = new Map(
+        DashboardMetricsApi.groupRows(previous, ["region"]).map((row) => [row.region, row]),
+      );
+      const currentTotal = DashboardMetricsApi.summarizeRows(current).purchase_value || 0;
+      const previousTotal = DashboardMetricsApi.summarizeRows(previous).purchase_value || 0;
+      return {
+        product_total_purchase_value: currentTotal,
+        product_total_delta: deltaText(currentTotal, previousTotal),
+        regions: Object.fromEntries(productRegionOrder.map((region) => [
+          region,
+          regionMetric(
+            currentRegions.get(region),
+            previousRegions.get(region),
+            currentTotal,
+            previousTotal,
+          ),
+        ])),
+      };
+    }
+
     function selectModel(factRows, previousRows, filters = {}, region = "ALL") {
       const current = applyFilters(factRows, filters);
       const previous = applyFilters(previousRows, filters);
@@ -221,6 +329,14 @@
       };
     }
 
-    return { applyFilters, regionForCountry, buildRegionHierarchy, selectModel };
+    return {
+      applyFilters,
+      regionForCountry,
+      productRegionOrder,
+      buildProductRegionComparison,
+      buildProductRegionSummary,
+      buildRegionHierarchy,
+      selectModel,
+    };
   },
 );
