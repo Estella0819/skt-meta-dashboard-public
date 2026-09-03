@@ -41,6 +41,7 @@ const state = {
   creativeTrendSelectionInitialized: false,
   expandedRegions: [],
   expandedProductSeries: [],
+  productDefaultExpansionInitialized: false,
   account: [],
   product: [],
   channelProduct: [],
@@ -2674,6 +2675,24 @@ function requestRender(callback = render, options = {}) {
   );
 }
 
+const highlightedProductNames = ["粉底棒", "美白奶皮面膜"];
+
+function initializeProductHierarchyExpansion(rows = []) {
+  if (state.productDefaultExpansionInitialized) return [];
+  const availableProducts = new Set((rows || []).map((row) => (
+    String(row?.standard_product_name || row?.product_name || "").trim()
+  )).filter(Boolean));
+  const visibleProducts = highlightedProductNames.filter((productName) => availableProducts.has(productName));
+  const seriesToExpand = [...new Set(visibleProducts
+    .map((productName) => DashboardProduct.productSeriesForProduct(productName))
+    .filter(Boolean))];
+  seriesToExpand.forEach((seriesName) => {
+    if (!state.expandedProductSeries.includes(seriesName)) state.expandedProductSeries.push(seriesName);
+  });
+  state.productDefaultExpansionInitialized = true;
+  return visibleProducts;
+}
+
 function hierarchyLabel(row) {
   const chevron = row._expandable
     ? `<span class="tree-chevron" aria-hidden="true">${row._expanded ? "⌄" : "›"}</span>`
@@ -2683,7 +2702,7 @@ function hierarchyLabel(row) {
     data-tree-value="${escapeHtml(row._nodeValue)}"
     data-tree-parent="${escapeHtml(row._parentValue || "")}"
     aria-expanded="${row._expandable ? String(row._expanded) : "false"}">
-    ${chevron}<span>${escapeHtml(row._displayName || row._nodeValue || "未分类")}</span>
+    ${chevron}<span>${escapeHtml(row._displayName || row._nodeValue || "未分类")}</span>${row._isHighlighted ? '<span class="new-product-mark">新增</span>' : ""}
   </button>`;
 }
 
@@ -3099,7 +3118,9 @@ function renderProductHierarchy(productModel, columns) {
     _rowClass: [
       `tree-row-depth-${row._depth}`,
       row._nodeType === "product" && state.product.includes(row.standard_product_name) ? "is-active-drilldown" : "",
+      row._nodeType === "product" && highlightedProductNames.includes(row._nodeValue) ? "is-highlighted-product" : "",
     ].filter(Boolean).join(" "),
+    _isHighlighted: row._nodeType === "product" && highlightedProductNames.includes(row._nodeValue),
   }));
   renderTable("productSegmentTable", hierarchyRows, columns, Number.POSITIVE_INFINITY, {
     summaryRows: productModel.detail,
@@ -3131,6 +3152,7 @@ function renderProductPage(productModel) {
   document.getElementById("productTrendTitle").textContent = `${segmentMeta.label}趋势`;
   document.getElementById("productStructureTitle").textContent = "产品 GMV 结构";
   document.getElementById("productDetailTitle").textContent = `${segmentMeta.label}明细`;
+  const visibleHighlightedProducts = initializeProductHierarchyExpansion(productModel.hierarchyCurrentRows);
   renderProductTrend(productModel);
   DashboardCharts.renderDonut(
     document.getElementById("productGmvDonut"),
@@ -3171,8 +3193,10 @@ function renderProductPage(productModel) {
   ];
   const best = productModel.detail[0];
   document.getElementById("productTableConclusion").textContent = best
-    ? `${best.standard_product_name} 当前归因收入最高，为 ${money(best.purchase_value)}，ROAS ${ratio(best.roas)}。`
-    : "当前筛选下暂无产品数据。";
+    ? `${best.standard_product_name} 当前归因收入最高，为 ${money(best.purchase_value)}，ROAS ${ratio(best.roas)}。${visibleHighlightedProducts.length ? ` 本期新增/已更新：${visibleHighlightedProducts.join("、")}。` : ""}`
+    : visibleHighlightedProducts.length
+      ? `本期新增/已更新：${visibleHighlightedProducts.join("、")}。`
+      : "当前筛选下暂无产品数据。";
   const columns = [...leadingColumns, ...metricColumns];
   if (productModel.segment === "overall") {
     renderProductHierarchy(productModel, columns);
@@ -6678,6 +6702,7 @@ function bindEvents() {
     state.allChannelsMode = "sales";
     state.expandedRegions = [];
     state.expandedProductSeries = [];
+    state.productDefaultExpansionInitialized = false;
     initFilters();
     requestRender(render, { historyMode: "replace" });
   });

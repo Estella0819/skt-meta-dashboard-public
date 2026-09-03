@@ -2085,6 +2085,25 @@ h3 {
   display: inline-block;
 }
 
+.new-product-mark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  margin-left: 7px;
+  padding: 0 5px;
+  border: 1px solid #b8d8cb;
+  border-radius: 999px;
+  background: #eef9f3;
+  color: #277052;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.is-highlighted-product td {
+  background: #f4fbf7;
+}
+
 .tree-row-depth-1 td {
   background: #f8fafc;
 }
