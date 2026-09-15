@@ -1,0 +1,2 @@
+window.META_DASHBOARD_SHARD_PAYLOADS = window.META_DASHBOARD_SHARD_PAYLOADS || {};
+window.META_DASHBOARD_SHARD_PAYLOADS["dashboard-channel-data-channel_market_product_daily-2023-10.js"] = {"partition":"channels","key":"channel_market_product_daily","schema":["date_start","market","country_code","country_name","channel","sku_code","product_name","units","sales","metric_basis"],"rows":[["2023-10-19","NON_US_ALL","ID","ID","Shopify","SKINTIFIC-57","White Truffle Ultra Gentle Essence Cleanser",1,374000.0,"Shopify Net Sales"]]};

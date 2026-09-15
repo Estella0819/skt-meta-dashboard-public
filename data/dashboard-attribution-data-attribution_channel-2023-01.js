@@ -1,0 +1,2 @@
+window.META_DASHBOARD_SHARD_PAYLOADS = window.META_DASHBOARD_SHARD_PAYLOADS || {};
+window.META_DASHBOARD_SHARD_PAYLOADS["dashboard-attribution-data-attribution_channel-2023-01.js"] = {"partition":"attribution","key":"attribution_channel","schema":[],"rows":[{"date_start":"2023-01-17","channel":"Shopify 总站","metric_basis":"财务净销售","spend":null,"platform_purchases":null,"platform_value":null,"shopify_revenue":345000.0,"coverage_pct":1.0,"evidence_level":"财务真值","quality_flag":""}]};

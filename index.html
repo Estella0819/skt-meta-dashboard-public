@@ -444,36 +444,22 @@
       </section>
 
       <section class="view-shell hidden" id="landingView" data-page-order="conclusion,kpis,trend,structure,detail">
-        <section class="split-grid" data-module="structure">
-          <article class="panel">
+        <section class="analysis-chart-row landing-chart-row" data-module="trend">
+          <article class="panel trend-panel">
             <header>
-              <h3>落地页类型对比</h3>
-              <button class="metric-info" type="button" title="只从 Ad set name 提取" aria-label="落地页类型口径">i</button>
+              <h3>落地页类型趋势</h3>
+              <button class="metric-info" type="button" title="按日期观察集合页、活动专题页、Bundle页和单品详情页的归因收入变化" aria-label="落地页趋势口径">i</button>
             </header>
-            <div id="landingTypeDonut" class="donut-card single-donut"></div>
+            <div id="landingTypeTrend" class="chart interactive-chart-host"></div>
           </article>
-          <article class="panel">
+          <article class="panel compact-structure-panel" data-module="structure">
             <header>
-              <h3>落地页效率对比</h3>
-              <button class="metric-info" type="button" title="花费占比 vs GMV占比，判断承接是否跑赢投放" aria-label="落地页效率口径">i</button>
+              <h3>落地页 GMV 结构</h3>
+              <button class="metric-info" type="button" title="只从 Ad set name 提取，按 Meta 归因 GMV 汇总" aria-label="落地页结构口径">i</button>
             </header>
-            <div id="landingTypeBars" class="compare-bars"></div>
+            <div id="landingTypeDonut" class="interactive-chart-host"></div>
           </article>
         </section>
-        <article class="panel compact-analysis-panel" data-module="structure">
-          <header>
-            <h3>落地页判断</h3>
-            <button class="metric-info" type="button" title="自动提炼主要承接、高效承接和风险承接" aria-label="落地页判断口径">i</button>
-          </header>
-          <div id="landingInsights" class="alerts inline-alerts"></div>
-        </article>
-        <article class="panel" data-module="trend">
-          <header>
-            <h3>落地页类型趋势</h3>
-            <button class="metric-info" type="button" title="按日期观察集合页、活动专题页、Bundle页和单品详情页的归因收入变化" aria-label="落地页趋势口径">i</button>
-          </header>
-          <div id="landingTypeTrend" class="chart small"></div>
-        </article>
         <article class="panel" data-module="structure">
           <header>
             <h3>落地页分析</h3>
@@ -621,9 +607,6 @@
       </section>
     </main>
 
-    <script src="./data/dashboard-core-data-overview_material_daily-1.js?v=20260903-product-mapping-v1"></script>
-    <script src="./data/dashboard-core-data-overview_material_daily-2.js?v=20260903-product-mapping-v1"></script>
-    <script src="./data/dashboard-core-data-overview_material_daily-3.js?v=20260903-product-mapping-v1"></script>
     <script src="./data/dashboard-core-data.js?v=20260903-product-mapping-v1"></script>
     <script src="./src/data-loader.js?v=20260825-creative-intelligence-v2"></script>
     <script src="./src/dashboard-metrics.js?v=20260714-meta-aov"></script>

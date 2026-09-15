@@ -1,0 +1,2 @@
+window.META_DASHBOARD_SHARD_PAYLOADS = window.META_DASHBOARD_SHARD_PAYLOADS || {};
+window.META_DASHBOARD_SHARD_PAYLOADS["dashboard-channel-data-channel_market_product_daily-2022-09.js"] = {"partition":"channels","key":"channel_market_product_daily","schema":["date_start","market","country_code","country_name","channel","sku_code","product_name","units","sales","metric_basis"],"rows":[["2022-09-27","NON_US_ALL","ID","ID","Shopify","SKINTIFIC-05+08","2 pcs Set with Clay Mask",1,216000.0,"Shopify Net Sales"]]};

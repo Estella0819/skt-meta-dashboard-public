@@ -1,0 +1,2 @@
+window.META_DASHBOARD_SHARD_PAYLOADS = window.META_DASHBOARD_SHARD_PAYLOADS || {};
+window.META_DASHBOARD_SHARD_PAYLOADS["dashboard-attribution-data-attribution_coverage_daily-2023-01.js"] = {"partition":"attribution","key":"attribution_coverage_daily","schema":[],"rows":[{"date_start":"2023-01-17","raw_meta_spend":null,"recon_meta_spend":null,"raw_meta_value":null,"recon_meta_value":null,"meta_spend_coverage":null,"meta_value_coverage":null,"shopify_net_sales":345000.0,"recon_shopify_gmv":345000.0}]};

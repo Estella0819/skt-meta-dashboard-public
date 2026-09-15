@@ -7218,16 +7218,15 @@ input[type="date"]:focus,
 }
 
 .collapsible-panel-action::after {
-  content: "+";
+  content: "";
   display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
-  color: #475569;
-  font-size: 15px;
-  line-height: 1;
+  width: 7px;
+  height: 7px;
+  margin: 0 4px 4px 2px;
+  border-right: 1.5px solid #64748b;
+  border-bottom: 1.5px solid #64748b;
+  transform: rotate(45deg);
+  transition: transform 140ms ease, margin 140ms ease;
 }
 
 .collapsible-data-panel > details[open] > summary {
@@ -7239,7 +7238,8 @@ input[type="date"]:focus,
 }
 
 .collapsible-data-panel > details[open] .collapsible-panel-action::after {
-  content: "−";
+  margin: 4px 4px 0 2px;
+  transform: rotate(225deg);
 }
 
 .collapsible-panel-body {
@@ -8127,5 +8127,73 @@ table {
   #countryDetailTable tbody > tr,
   #countryDetailTable tfoot > tr {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* landing-analysis-and-partial-data-polish */
+.landing-chart-row {
+  grid-template-columns: minmax(0, 2.4fr) minmax(330px, 0.9fr);
+}
+
+.landing-chart-row .trend-panel .interactive-series-chart,
+.landing-chart-row .trend-panel .chart {
+  height: 420px;
+  min-height: 420px;
+}
+
+.landing-chart-row .compact-structure-panel .interactive-donut-body {
+  grid-template-columns: minmax(170px, 0.9fr) minmax(0, 1.1fr);
+  gap: 10px;
+  padding: 14px 12px 18px;
+}
+
+.landing-chart-row .compact-structure-panel .interactive-donut-visual svg {
+  width: clamp(176px, 16vw, 224px);
+}
+
+.landing-chart-row .compact-structure-panel .interactive-donut-legend {
+  max-height: 280px;
+}
+
+.partial-period-note {
+  color: #9a5d00;
+  font-weight: 750;
+}
+
+.partial-analysis-note {
+  color: #9a5d00 !important;
+  font-size: 11px !important;
+}
+
+.kpi strong[title] {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .landing-chart-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .landing-chart-row .compact-structure-panel .interactive-donut-body {
+    grid-template-columns: minmax(210px, 0.8fr) minmax(0, 1.2fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .landing-chart-row .trend-panel .interactive-series-chart,
+  .landing-chart-row .trend-panel .chart {
+    height: 360px;
+    min-height: 360px;
+  }
+
+  .landing-chart-row .compact-structure-panel .interactive-donut-body {
+    grid-template-columns: minmax(138px, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .landing-chart-row .compact-structure-panel .interactive-donut-visual svg {
+    width: clamp(146px, 40vw, 168px);
   }
 }

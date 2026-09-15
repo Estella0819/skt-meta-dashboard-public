@@ -1,0 +1,2 @@
+window.META_DASHBOARD_SHARD_PAYLOADS = window.META_DASHBOARD_SHARD_PAYLOADS || {};
+window.META_DASHBOARD_SHARD_PAYLOADS["dashboard-attribution-data-shopify_daily-2022-09.js"] = {"partition":"attribution","key":"shopify_daily","schema":[],"rows":[{"date_start":"2022-09-27","orders":1,"net_items_sold":1,"gross_sales":216000.0,"discounts":0.0,"returns":0.0,"net_sales":216000.0,"taxes":0.0,"total_sales":216000.0,"aov":216000.0}]};

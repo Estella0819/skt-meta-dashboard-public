@@ -1,0 +1,2 @@
+window.META_DASHBOARD_SHARD_PAYLOADS = window.META_DASHBOARD_SHARD_PAYLOADS || {};
+window.META_DASHBOARD_SHARD_PAYLOADS["dashboard-attribution-data-shopify_country_daily-2023-02.js"] = {"partition":"attribution","key":"shopify_country_daily","schema":[],"rows":[{"date_start":"2023-02-15","country":"ID","orders":1,"net_items_sold":60,"gross_sales":25740000.0,"discounts":0.0,"returns":0.0,"net_sales":25740000.0,"taxes":0.0,"total_sales":25740000.0,"aov":25740000.0}]};

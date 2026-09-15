@@ -497,6 +497,21 @@ function daysBetween(start, end) {
   return Math.round((dateToTime(end) - dateToTime(start)) / 86400000) + 1;
 }
 
+function localDateIso(now = new Date()) {
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function isCurrentDayPartial() {
+  return state.endDate === localDateIso()
+    && data.summary?.max_date === state.endDate;
+}
+
+function completeTrendRows(rows) {
+  if (!isCurrentDayPartial()) return rows;
+  return rows.filter((row) => row.date_start !== state.endDate);
+}
+
 function comparisonWindow() {
   if (!state.startDate || !state.endDate) return { start: "", end: "", label: "无对比周期" };
   if (state.compareMode === "custom" && state.compareStartDate && state.compareEndDate) {
@@ -1403,11 +1418,13 @@ function renderPeriodHint() {
   hint.innerHTML = `
     <span>当前生效：${escapeHtml(state.startDate)} 至 ${escapeHtml(state.endDate)}</span>
     <span>当前对比：${escapeHtml(period.label)}</span>
+    ${isCurrentDayPartial() ? `<span class="partial-period-note">今日部分数据 · 截至 ${escapeHtml(String(data.generated_at || "当前刷新时间"))}</span>` : ""}
     ${pendingText}
   `;
 }
 
 function renderKpiItems(items) {
+  const partialNote = isCurrentDayPartial() ? " · 含今日部分数据" : "";
   document.getElementById("kpis").innerHTML = items.map((item) => {
     const value = typeof item.value === "string" ? item.value : item.format(item.value);
     const delta = item.previous === undefined || item.previous === null ? null : deltaText(item.value, item.previous);
@@ -1415,12 +1432,18 @@ function renderKpiItems(items) {
     return `
     <article class="kpi">
       <span>${escapeHtml(item.label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-      <small class="${cls}">${escapeHtml(delta ? `${delta.text} 环比` : (item.note || "当前周期"))}</small>
+      <strong title="${escapeHtml(String(item.fullValue || value))}">${escapeHtml(value)}</strong>
+      <small class="${cls}">${escapeHtml(`${delta ? `${delta.text} 环比` : (item.note || "当前周期")}${partialNote}`)}</small>
       <em>${escapeHtml(item.hint || "")}</em>
     </article>
   `;
   }).join("");
+}
+
+function compactDisplayName(value, maxLength = 28) {
+  const text = String(value || "-").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1)}…`;
 }
 
 function renderKpis(rows, previousRows, context = {}) {
@@ -1438,14 +1461,19 @@ function renderKpis(rows, previousRows, context = {}) {
     const topStandardProduct = [...modelRows].sort((a, b) => b.purchase_value - a.purchase_value)[0];
     const topStructure = productModel?.structure?.[0];
     const structureLabel = productModel?.segment === "form" ? "主力单品套组" : productModel?.segment === "material" ? "主力素材类型" : "主力产品";
-    renderKpiItems([
+    const productKpis = [
       { label: "产品数", value: standardProductCount, previous: previousStandardProductCount, format: number, hint: "按标准产品名" },
-      { label: "主力产品", value: topStandardProduct?.standard_product_name || "-", note: topStandardProduct ? `GMV ${money(topStandardProduct.purchase_value)}` : "当前周期", format: String, hint: "按 归因收入" },
-      { label: structureLabel, value: topStructure?.[productModel?.dimension] || "-", note: topStructure ? `ROAS ${ratio(topStructure.roas)}` : "当前周期", format: String, hint: "当前分析维度" },
+      { label: "主力产品", value: topStandardProduct?.standard_product_name || "-", note: topStandardProduct ? `GMV ${money(topStandardProduct.purchase_value)} · ROAS ${ratio(topStandardProduct.roas)}` : "当前周期", format: String, hint: "按归因收入" },
+      ...(productModel?.segment === "overall" ? [
+        { label: "广告花费", value: productSummary.spend, previous: previousProductSummary.spend, format: money, hint: "Meta 广告花费" },
+      ] : [
+        { label: structureLabel, value: topStructure?.[productModel?.dimension] || "-", note: topStructure ? `GMV ${money(topStructure.purchase_value)} · ROAS ${ratio(topStructure.roas)}` : "当前周期", format: String, hint: "当前分析维度" },
+      ]),
       { label: "归因收入", value: productSummary.purchase_value, previous: previousProductSummary.purchase_value, format: money, hint: `${number(productSummary.purchase_times)} 转化` },
       { label: "ROAS", value: productSummary.roas, previous: previousProductSummary.roas, format: ratio, hint: "归因收入 / 花费" },
       { label: "CVR", value: productSummary.cvr, previous: previousProductSummary.cvr, format: pct, hint: "转化 / 站外点击" },
-    ]);
+    ];
+    renderKpiItems(productKpis);
     return;
   }
 
@@ -1455,16 +1483,12 @@ function renderKpis(rows, previousRows, context = {}) {
     const previousCreativeSummary = creativeModel?.previousSummary || previous;
     const creativeMaterialCount = new Set((creativeModel?.detail || []).map(materialIdentity).filter(Boolean)).size;
     const previousCreativeMaterialCount = new Set((creativeModel?.previousDetail || []).map(materialIdentity).filter(Boolean)).size;
-    const topSegment = creativeModel?.structure?.[0];
-    const segmentLabel = creativeModel ? creativeSegmentMeta(creativeModel).label : "素材类型";
-    const riskRows = aggregate((creativeModel?.detail || []).map((row) => ({ ...row, material_name: materialName(row) })), ["material_name"])
-      .filter((row) => row.spend > 100 && row.roas < 1.3);
     renderKpiItems([
       { label: "素材数", value: creativeMaterialCount, previous: previousCreativeMaterialCount, format: number, hint: "唯一素材名/编号" },
       { label: "素材花费", value: creativeSummary.spend, previous: previousCreativeSummary.spend, format: money, hint: "Meta 广告花费" },
       { label: "归因收入", value: creativeSummary.purchase_value, previous: previousCreativeSummary.purchase_value, format: money, hint: `${number(creativeSummary.purchase_times)} 转化` },
-      { label: `主要${segmentLabel}`, value: topSegment?.[creativeModel?.dimension] || "-", note: topSegment ? `花费占比 ${pct(topSegment.spend_share)}` : "当前周期", format: String, hint: "按花费占比" },
-      { label: "风险素材", value: riskRows.length, previous: undefined, format: number, hint: "花费>$100 且 ROAS<1.3", inverse: true },
+      { label: "ROAS", value: creativeSummary.roas, previous: previousCreativeSummary.roas, format: ratio, hint: "归因收入 / 花费" },
+      { label: "客单 AOV", value: creativeSummary.aov, previous: previousCreativeSummary.aov, format: money, hint: "归因收入 / 转化" },
       { label: "CVR", value: creativeSummary.cvr, previous: previousCreativeSummary.cvr, format: pct, hint: "转化 / 站外点击" },
     ]);
     return;
@@ -1528,7 +1552,7 @@ function renderKpis(rows, previousRows, context = {}) {
       channelSalesKpi("Amazon销售额", "Amazon", amazon, previousAmazon, "Source USD GMV"),
       channelSalesKpi("TikTok销售额", "TikTok", tiktok, previousTiktok, "Source USD GMV"),
       { label: "渠道销量", value: channelModel.summary.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), previous: channelModel.previousSummary.reduce((sum, row) => sum + getMetric(row, "channel_units"), 0), format: number, hint: "Units 汇总" },
-      { label: "最高销量产品", value: topProduct?.product_name || "-", note: topProduct ? `${number(topProduct.channel_units)} 件` : "当前周期", format: String, hint: topProduct?.sku_code || "" },
+      { label: "最高销量产品", value: compactDisplayName(topProduct?.product_name), fullValue: topProduct?.product_name || "-", note: topProduct ? `${number(topProduct.channel_units)} 件` : "当前周期", format: String, hint: topProduct?.sku_code || "" },
     ]);
     return;
   }
@@ -1681,20 +1705,26 @@ function renderLineChart(id, rows, metric) {
 function renderTrendConclusion(id, rows, metric) {
   const el = document.getElementById(id);
   if (!el) return;
-  if (!rows.length) {
+  const conclusionRows = completeTrendRows(rows);
+  if (!conclusionRows.length) {
+    if (isCurrentDayPartial() && rows.length) {
+      el.innerHTML = `<strong>趋势结论</strong><p>当前仅有今日部分数据，暂不计算期初期末变化。</p>`;
+      return;
+    }
     el.innerHTML = `<p class="empty">当前筛选下没有趋势数据。</p>`;
     return;
   }
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-  const peak = [...rows].sort((a, b) => getMetric(b, metric) - getMetric(a, metric))[0];
-  const total = rows.reduce((sum, row) => sum + getMetric(row, metric), 0);
-  const avg = total / rows.length;
+  const first = conclusionRows[0];
+  const last = conclusionRows[conclusionRows.length - 1];
+  const peak = [...conclusionRows].sort((a, b) => getMetric(b, metric) - getMetric(a, metric))[0];
+  const total = conclusionRows.reduce((sum, row) => sum + getMetric(row, metric), 0);
+  const avg = total / conclusionRows.length;
   const trendDelta = deltaText(getMetric(last, metric), getMetric(first, metric));
   el.innerHTML = `
     <strong>趋势结论</strong>
     <p>${escapeHtml(metricLabels[metric])}峰值出现在 ${escapeHtml(peak.date_start)}，为 ${escapeHtml(formatMetric(metric, getMetric(peak, metric)))}。</p>
-    <p>期末较期初 <span class="${trendDelta.cls}">${escapeHtml(trendDelta.text)}</span>，日均 ${escapeHtml(formatMetric(metric, avg))}。</p>
+    <p>${isCurrentDayPartial() ? "按完整日计算：" : ""}期末较期初 <span class="${trendDelta.cls}">${escapeHtml(trendDelta.text)}</span>，日均 ${escapeHtml(formatMetric(metric, avg))}。</p>
+    ${isCurrentDayPartial() ? "<p class=\"partial-analysis-note\">今日数据仍在累积，不参与期初期末变化判断。</p>" : ""}
   `;
 }
 
@@ -3469,7 +3499,7 @@ function renderAttributionKpis(kpis) {
     <article><span>Shopify Total Sales</span><strong>${money(kpis.shopify.shopify_total_sales)}</strong><small>${number(kpis.shopify.shopify_orders)} 订单 · 站内财务基准 · ${availability(kpis.shopify.availability)}</small></article>
     ${kpis.channels.map(channelCard).join("")}
     <article><span>广告渠道总览</span><strong>${money(kpis.diagnostics.totalSpend)}</strong><small>合计花费 · 混合 MER ${ratio(kpis.diagnostics.blendedMer)}<br>总广告投入率 ${pct(kpis.diagnostics.adInvestmentRate)}</small></article>
-    <article><span>归因溢出</span><strong>${pct(kpis.diagnostics.attributionOverflowRate)}</strong><small>平台 GMV ${money(kpis.diagnostics.totalValue)} vs Shopify Total Sales<br>仅表示平台认领溢出，不等同投放饱和</small></article>`;
+    <article><span>平台认领差异</span><strong>${pct(kpis.diagnostics.attributionOverflowRate)}</strong><small>平台 GMV ${money(kpis.diagnostics.totalValue)} vs Shopify Total Sales<br>${kpis.diagnostics.attributionOverflowRate >= 0 ? "平台认领高于站内" : "平台认领低于站内"}，不等同投放饱和</small></article>`;
 }
 
 function buildAttributionTrendModel(rows) {
@@ -3565,8 +3595,8 @@ function renderAttributionDiagnostics(diagnostics) {
     <div><span>Shopify Total Sales</span><strong>${money(diagnostics.shopifyTotalSales)}</strong></div>
     <div><span>总广告投入率</span><strong>${pct(diagnostics.adInvestmentRate)}</strong></div>
     <div><span>混合 MER</span><strong>${ratio(diagnostics.blendedMer)}</strong></div>
-    <div><span>平台归因溢出率</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong></div>
-    <small>溢出率用于观察平台重复认领和归因压力；需结合投入率与混合 MER 判断投放是否趋于饱和。</small>`;
+    <div><span>平台认领差异</span><strong>${pct(diagnostics.attributionOverflowRate)}</strong></div>
+    <small>认领差异用于观察平台归因 GMV 与站内销售的偏离；正值表示高于站内，负值表示低于站内，需结合投入率与混合 MER 判断。</small>`;
 }
 
 function aggregateAttributionChannels(rows) {
@@ -5781,15 +5811,20 @@ function renderLandingPage(model) {
   const { landingRows, previousLandingRows } = model;
   renderSharedAnalytics(model);
   const landingTypeRows = aggregate(landingRows, ["landing_type"]).sort((a, b) => b.spend - a.spend);
-  renderDonutChart("landingTypeDonut", landingTypeRows, "spend", "落地页花费结构", { labelKey: "landing_type", limit: 8 });
-  renderLandingInsights(landingRows);
+  const landingDonutModel = DashboardCharts.buildDonutModel(landingTypeRows, {
+    categoryKey: "landing_type",
+    valueKey: "purchase_value",
+    limit: 8,
+  });
+  DashboardCharts.renderDonut(document.getElementById("landingTypeDonut"), landingDonutModel, {
+    ariaLabel: "落地页类型 GMV 结构",
+  });
   const previousLandingTypeRows = aggregate(previousLandingRows, ["landing_type"]);
   const landingTypeComparisonRows = addShareDeltas(
     addComparison(landingTypeRows, previousLandingRows, ["landing_type"]),
     previousLandingTypeRows,
     ["landing_type"],
   ).sort((a, b) => b.spend - a.spend);
-  renderLandingTypeBars("landingTypeBars", landingTypeComparisonRows);
   renderCategoryLineChart("landingTypeTrend", aggregate(landingRows, ["date_start", "landing_type"]).sort((a, b) => String(a.date_start).localeCompare(String(b.date_start))), "landing_type", "purchase_value", { limit: 4 });
   renderTable("landingPageAnalysisTable", landingTypeComparisonRows, [
     { key: "landing_type", label: "落地页", sticky: true, filterKey: "landing_type", format: (v) => `<span class="tag">${escapeHtml(v)}</span>` },
@@ -6207,7 +6242,15 @@ function measuredPageRenderer(view, buildModel, commit) {
   return async (context) => {
     const renderRequest = context.renderRequest;
     const additionalPartitions = metaAnalysisNeedsCreativeRows(view) ? ["creative"] : [];
-    await measureDashboardPhase(view, "load", () => DashboardDataLoader.ensure(view, { additionalPartitions }));
+    const previous = comparisonWindow();
+    const ranges = [
+      { start: state.startDate, end: state.endDate },
+      { start: previous.start, end: previous.end },
+    ];
+    if (view === "creative") {
+      ranges.push({ start: addDays(state.endDate, -9), end: state.endDate });
+    }
+    await measureDashboardPhase(view, "load", () => DashboardDataLoader.ensure(view, { additionalPartitions, ranges }));
     if (!isCurrentRenderRequest(renderRequest) || state.view !== renderRequest.originView) return undefined;
     enrichLoadedDashboardData();
     initFilters();
@@ -6228,7 +6271,7 @@ DashboardRenderDispatcher.register("allChannels", measuredPageRenderer("allChann
 function renderSharedShell(page) {
   document.getElementById("viewTitle").textContent = page.title;
   document.getElementById("viewSubtitle").textContent = page.subtitle;
-  document.getElementById("periodBadge").textContent = `${daysBetween(state.startDate, state.endDate)} 天`;
+  document.getElementById("periodBadge").textContent = `${daysBetween(state.startDate, state.endDate)} 天${isCurrentDayPartial() ? " · 今日未完" : ""}`;
   document.querySelector(".filterbar").classList.remove("lifecycle-fixed-snapshot");
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === state.view));
   document.querySelectorAll("[id$='View']").forEach((section) => section.classList.add("hidden"));
