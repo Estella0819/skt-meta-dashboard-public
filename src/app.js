@@ -2713,9 +2713,9 @@ function initializeProductHierarchyExpansion(rows = []) {
     String(row?.standard_product_name || row?.product_name || "").trim()
   )).filter(Boolean));
   const visibleProducts = highlightedProductNames.filter((productName) => availableProducts.has(productName));
-  const seriesToExpand = [...new Set(visibleProducts
-    .map((productName) => DashboardProduct.productSeriesForProduct(productName))
-    .filter(Boolean))];
+  const seriesToExpand = [...new Set(visibleProducts.flatMap((productName) => (
+    DashboardProduct.productHierarchyPathForProduct(productName).slice(0, -1)
+  )).filter(Boolean))];
   seriesToExpand.forEach((seriesName) => {
     if (!state.expandedProductSeries.includes(seriesName)) state.expandedProductSeries.push(seriesName);
   });

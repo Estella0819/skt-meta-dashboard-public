@@ -98,6 +98,11 @@
       return productSeriesLookup.get(product) || product;
     }
 
+    function productHierarchyPathForProduct(productName) {
+      const product = String(productName || "Unknown").trim() || "Unknown";
+      return productPathLookup.get(product) || productNodePathLookup.get(product) || [product];
+    }
+
     function rowsWithProductSeries(rows) {
       return (rows || []).map((row) => ({
         ...row,
@@ -262,6 +267,7 @@
       applyFilters,
       buildProductHierarchy,
       productHierarchy,
+      productHierarchyPathForProduct,
       productSeriesChildren,
       productSeriesForProduct,
       segmentDimension,

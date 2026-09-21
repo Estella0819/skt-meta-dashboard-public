@@ -42,7 +42,7 @@
         leaves.add(node);
         roots.set(node, root);
         nodes.set(node, { root, leaves: [node] });
-        return;
+        return [node];
       }
       const childLeaves = node.children.flatMap((child) => walk(child, root));
       roots.set(node.name, root);
