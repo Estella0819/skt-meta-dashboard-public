@@ -33,8 +33,8 @@ const state = {
   endDate: "",
   country: [],
   countryRegion: "ALL",
-  countryTrendSelection: [],
-  countryTrendSelectionInitialized: false,
+  regionTrendSelection: [],
+  regionTrendSelectionInitialized: false,
   creativeExpandedType: "",
   creativeExpandedSources: [],
   creativeTrendSelection: [],
@@ -4224,17 +4224,17 @@ function renderCountryPage(countryModel) {
 }
 
 function renderCountryTrend(countryModel) {
-  const model = DashboardCharts.buildSeriesModel(countryModel.trendByCountry, {
-    categoryKey: "country",
+  const model = DashboardCharts.buildSeriesModel(countryModel.trendByRegion, {
+    categoryKey: "region",
     limit: 8,
-    ...(state.countryTrendSelectionInitialized ? { selected: state.countryTrendSelection } : {}),
+    ...(state.regionTrendSelectionInitialized ? { selected: state.regionTrendSelection } : {}),
   });
   DashboardCharts.renderSeriesChart(document.getElementById("countryTrend"), model, {
-    ariaLabel: "按国家的 Meta GMV 日趋势",
+    ariaLabel: "按地区的 Meta 归因收入日趋势",
     onSelectionChange(selected) {
       requestRender(() => {
-        state.countryTrendSelection = selected;
-        state.countryTrendSelectionInitialized = true;
+        state.regionTrendSelection = selected;
+        state.regionTrendSelectionInitialized = true;
         renderCountryTrend(countryModel);
       }, { historyMode: "" });
     },
@@ -4244,8 +4244,8 @@ function renderCountryTrend(countryModel) {
 function resetTrendSelections() {
   state.productTrendSelection = [];
   state.productTrendSelectionInitialized = false;
-  state.countryTrendSelection = [];
-  state.countryTrendSelectionInitialized = false;
+  state.regionTrendSelection = [];
+  state.regionTrendSelectionInitialized = false;
   state.creativeTrendSelection = [];
   state.creativeTrendSelectionInitialized = false;
 }

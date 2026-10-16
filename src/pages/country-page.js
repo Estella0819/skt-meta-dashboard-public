@@ -319,9 +319,12 @@
         summary: DashboardMetricsApi.summarizeRows(visible),
         trend: DashboardMetricsApi.groupRows(visible, ["date_start"])
           .sort((left, right) => String(left.date_start).localeCompare(String(right.date_start))),
-        trendByCountry: DashboardMetricsApi.groupRows(visible, ["date_start", "country"])
+        trendByRegion: DashboardMetricsApi.groupRows(
+          visible.map((row) => ({ ...row, region: regionForCountry(row.country) })),
+          ["date_start", "region"],
+        )
           .sort((left, right) => String(left.date_start).localeCompare(String(right.date_start))
-            || String(left.country).localeCompare(String(right.country))),
+            || String(left.region).localeCompare(String(right.region), "zh-CN")),
         regions,
         countries,
         previousRegions: previousRegionsWithShares,
