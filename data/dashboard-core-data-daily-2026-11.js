@@ -1,0 +1,2 @@
+window.META_DASHBOARD_SHARD_PAYLOADS = window.META_DASHBOARD_SHARD_PAYLOADS || {};
+window.META_DASHBOARD_SHARD_PAYLOADS["dashboard-core-data-daily-2026-11.js"] = {"partition":"core","key":"daily","schema":[],"rows":[{"date_start":"2026-11-01","spend":6239.7787670000025,"impressions":361483,"clicks":14383,"inline_link_clicks":10063,"outbound_clicks":9347,"purchase_times":337,"purchase_value":12584.739999999998,"roas":2.0169,"cpa":18.5157,"ctr":0.027838,"cvr":0.036054,"cpm":17.2616,"aov":37.3434}]};
