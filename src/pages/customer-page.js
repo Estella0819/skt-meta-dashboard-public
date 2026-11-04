@@ -45,8 +45,9 @@
     function walk(node,depth){
       if(typeof node==='string'){if(!names.has(node))return [];visited.add(node);return [entry(node,[node],depth)];}
       const children=node.children.flatMap(n=>walk(n,depth+1));
-      if(!children.length)return [];
-      const leaves=children.filter(r=>names.has(r.label)).map(r=>r.label);
+      if(!children.length && !names.has(node.name))return [];
+      if(names.has(node.name))visited.add(node.name);
+      const leaves=[...new Set([...children.filter(r=>names.has(r.label)).map(r=>r.label),...(names.has(node.name)?[node.name]:[])])];
       const blocks=[]; for(const row of children){if(row._depth===depth+1)blocks.push([]);blocks.at(-1).push(row);}
       blocks.sort((a,b)=>(b[0].total_gmv||0)-(a[0].total_gmv||0));
       return [entry(node.name,leaves,depth),...blocks.flat()];

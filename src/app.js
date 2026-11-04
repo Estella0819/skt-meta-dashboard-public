@@ -6340,7 +6340,7 @@ function renderCustomerModel(model) {
   tree.forEach((r,i)=>{r._parent=tree[i+1]?._depth>r._depth;});
   const visible=[];const ancestors=[];
   for(const row of tree){ancestors.length=row._depth; if(ancestors.every(n=>customerExpanded.has(n)))visible.push(row);ancestors[row._depth]=row.label;}
-  const metrics=customerMetricMode==='gmv' ? [['new_gmv','新客 GMV'],['new_share','新客占比'],['old_gmv','老客 GMV'],['old_share','老客占比'],['unknown_gmv','未知 GMV']] : [['new_roas','新客 ROAS'],['old_roas','老客 ROAS'],['new_aov','新客 AOV'],['old_aov','老客 AOV']];
+  const metrics=customerMetricMode==='gmv' ? [['new_gmv','新客 GMV'],['new_share','新客占比'],['new_roas','新客 ROI'],['old_gmv','老客 GMV'],['old_share','老客占比'],['old_roas','老客 ROI']] : [['new_roas','新客 ROI'],['old_roas','老客 ROI'],['new_aov','新客 AOV'],['old_aov','老客 AOV']];
   renderTable('customerDetail',visible,[title,...metrics.map(([key,label])=>column(key,label))],Infinity,{...options(usable ? sum:null),preserveHierarchy:true});
   document.getElementById('customerDetail').onclick=event=>{const button=event.target.closest('[data-customer-node]');if(!button)return;const key=button.dataset.customerNode;customerExpanded.has(key)?customerExpanded.delete(key):customerExpanded.add(key);renderCustomerModel(model);};
   const siteOK=model.available && model.siteAllowed;
@@ -6352,7 +6352,6 @@ function renderCustomerModel(model) {
   document.getElementById('customerSiteNote').textContent=!model.siteAllowed ? '当前账户 / 投手筛选无法可靠关联全店，或双店日期覆盖不完整，站内数据不可用。' : !model.available ? '所选日期无完整站内数据覆盖。' : 'Shopify 原始 New / Returning，非跨店去重；产品仅使用明确映射，未知参与占比分母。';
   document.getElementById('customerScope').textContent=`覆盖 ${model.payload?.start_date || '—'} 至 ${model.payload?.end_date || '—'} · 生成 ${model.payload?.generated_at || '—'} · 未映射广告 ${model.rows.filter(r=>r.mapping_unknown).length} 行；${(model.payload?.limitations||[]).join('；')}`;
   document.getElementById('customerMappingAudit').textContent=model.rows.slice(0,20).map(r=>`${r.date_start} / ${r.ad_id} → ${r.standard_product_name || r.product_name || '未映射'} / ${r.operator || '未知投手'}`).join('\n') || '当前范围无广告映射样本。';
-  for(const [id,value] of [['customerProductTab','product'],['customerRegionTab','region']]){const el=document.getElementById(id);el.classList.toggle('active',customerDimension===value);el.setAttribute('aria-pressed',String(customerDimension===value));el.onclick=()=>{customerDimension=value;renderCustomerModel(model);};}
   for(const [id,value] of [['customerGmvTab','gmv'],['customerEfficiencyTab','efficiency']]){const el=document.getElementById(id);el.classList.toggle('active',customerMetricMode===value);el.setAttribute('aria-pressed',String(customerMetricMode===value));el.onclick=()=>{customerMetricMode=value;renderCustomerModel(model);};}
 }
 DashboardRenderDispatcher.register("customer", measuredPageRenderer("customer", async () => {
