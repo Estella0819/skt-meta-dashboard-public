@@ -6241,7 +6241,7 @@ function measureDashboardPhase(view, phase, callback) {
 function measuredPageRenderer(view, buildModel, commit) {
   return async (context) => {
     const renderRequest = context.renderRequest;
-    const additionalPartitions = metaAnalysisNeedsCreativeRows(view) ? ["creative"] : [];
+    const additionalPartitions = view === "customer" || metaAnalysisNeedsCreativeRows(view) ? ["creative"] : [];
     const previous = comparisonWindow();
     const ranges = [
       { start: state.startDate, end: state.endDate },
@@ -6261,6 +6261,104 @@ function measuredPageRenderer(view, buildModel, commit) {
   };
 }
 
+let customerDimension = "product";
+let customerDataPromise;
+function ensureCustomerData() {
+  if (window.DASHBOARD_CUSTOMER_DATA) return Promise.resolve();
+  if (!customerDataPromise) customerDataPromise = new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    const release=new URL(document.querySelector('script[src*="src/app.js"]').src).searchParams.get('v');
+    script.src=`./data/dashboard-customer-data.js?v=${encodeURIComponent(release || 'customer-v1')}`;
+    script.onload=()=>window.DASHBOARD_CUSTOMER_DATA ? resolve() : reject(new Error('新老客数据未注册'));
+    script.onerror=()=>reject(new Error('新老客数据加载失败，请稍后重试'));
+    document.head.append(script);
+  }).catch(error=>{
+    customerDataPromise=undefined;
+    document.getElementById('customerConclusion').textContent=error.message;
+    throw error;
+  });
+  return customerDataPromise;
+}
+let customerMetricMode = "gmv";
+const customerExpanded = new Set();
+function buildCustomerModel() {
+  const api = DashboardCustomer;
+  const payload = window.DASHBOARD_CUSTOMER_DATA;
+  const previous = comparisonWindow();
+  const available = api.covered(payload,state.startDate,state.endDate);
+  const previousAvailable = api.covered(payload,previous.start,previous.end);
+  const inRange = (rows,start,end) => rows.filter(r=>r.date_start>=start && r.date_start<=end);
+  const all = api.selectAds(payload?.ads,data.ads,state,r=>passesCommonFilters(r,{ignoreCountry:true}) && matchesAdvertisingProduct(r));
+  const rows = available ? inRange(all,state.startDate,state.endDate) : [];
+  const before = previousAvailable ? inRange(all,previous.start,previous.end) : [];
+  const storeCoverage = ['主店','美国店'].map(store=>{
+    const dates=(payload?.site || []).filter(r=>r.store===store).map(r=>r.date_start).sort();
+    return {start_date:dates[0],end_date:dates.at(-1)};
+  });
+  const siteCovered = (start,end)=>storeCoverage.every(c=>api.covered(c,start,end));
+  const siteAllowed = !state.account.length && !state.operator.length && siteCovered(state.startDate,state.endDate);
+  // Only the explicit Shopify mapping is shared with advertising product filters.
+  const reviewedSiteMap = new Map((payload?.site_product_mapping || []).map(m=>[m.product_title,m.product_name]));
+  const siteAll = (payload?.site || []).map(r=>{
+    const mapped = reviewedSiteMap.get(r.product_title) || shopifyProductMap.get(r.product_title);
+    return {...r, product_name:mapped, standard_product_name:mapped ? productClass(mapped).standard_product_name : undefined};
+  }).filter(r=>(!state.country.length || state.country.includes(r.country)) && (!state.product.length || (r.product_name && matchesAdvertisingProduct(r))));
+  return {payload,available,previousAvailable,rows,before,siteAllowed,sitePreviousAvailable:siteCovered(previous.start,previous.end),site:available && siteAllowed ? inRange(siteAll,state.startDate,state.endDate) : [],siteBefore:previousAvailable && siteAllowed && siteCovered(previous.start,previous.end) ? inRange(siteAll,previous.start,previous.end) : []};
+}
+function renderCustomerModel(model) {
+  const api=DashboardCustomer;
+  const usable=model.available && !state.country.length && customerDimension==='product';
+  const prior=usable && model.previousAvailable;
+  const rows=usable ? model.rows : [];
+  const before=prior ? model.before : [];
+  const summary=api.snapshot(rows,usable), previous=api.snapshot(before,prior);
+  const percent=v=>v==null ? '—' : `${number(v*100,1)}%`;
+  const format=(key,v)=>v==null ? '—' : key.endsWith('share') ? percent(v) : key.endsWith('roas') ? number(v,2) : money(v);
+  const cell=(key,row)=>{
+    const value=row[key], old=row.previous?.[key], delta=api.compare(value,old);
+    return `<span class="metric-stack"><strong>${format(key,value)}</strong><small>${old==null ? '对比无数据' : `前期 ${format(key,old)} · ${delta==null ? '基期为零' : percent(delta)}`}</small></span>`;
+  };
+  const column=(key,label)=>({key,label,num:true,value:r=>r[key],format:(_v,r)=>cell(key,r),summaryFormat:(_v,r)=>cell(key,r),summaryDelta:false});
+  const sum={label:'SUM',...summary,previous};
+  const options=total=>({insight:false,summaryData:total,previousSummaryData:null});
+  const title={key:'label',label:'产品',value:r=>r.label,format:(v,r)=>{
+    const text=escapeHtml(v);
+    if(r._parent) return `<button type="button" class="customer-tree" data-customer-node="${escapeHtml(v)}" aria-expanded="${customerExpanded.has(v)}">${customerExpanded.has(v)?'−':'+'} ${text}</button>`;
+    return v==='未映射' || v.startsWith('未映射 ·') ? text : `<a class="link-filter" data-filter-key="standard_product_name" data-filter-value="${escapeHtml(v)}" href="${filterHref('standard_product_name',v)}">${text}</a>`;
+  }};
+  document.getElementById('customerConclusion').textContent=!usable ? (state.country.length || customerDimension==='region' ? '当前接口未返回可用地区受众数据；广告指标不做地区分摊。' : '所选日期超出数据覆盖，广告指标不可用。') : `新客贡献 ${percent(summary.new_share)} GMV，老客 ${percent(summary.old_share)}，未知 ${percent(summary.unknown_share)}。`;
+  document.getElementById('customerKpis').innerHTML=['new','old','unknown'].map((key,i)=>`<div><strong>${['新客','老客','未知'][i]} GMV</strong>${cell(`${key}_gmv`,sum)}</div>`).join('');
+  const structure=usable ? api.aggregate(rows).map((r,i)=>({label:r.label,gmv:r.purchase_value,share:r.share,roas:r.roas,cpa:r.cpa,aov:r.aov,previous:prior ? {gmv:api.aggregate(before)[i].purchase_value,share:api.aggregate(before)[i].share,roas:api.aggregate(before)[i].roas,cpa:api.aggregate(before)[i].cpa,aov:api.aggregate(before)[i].aov} : {}})) : [];
+  const totals=source=>{const spend=source.reduce((s,r)=>s+(Number(r.spend)||0),0),gmv=source.reduce((s,r)=>s+(Number(r.purchase_value)||0),0),purchases=source.reduce((s,r)=>s+(Number(r.purchase_times)||0),0);return {gmv,share:gmv ? 1:null,roas:spend ? gmv/spend:null,cpa:purchases ? spend/purchases:null,aov:purchases ? gmv/purchases:null};};
+  const structureSum=usable ? {...totals(rows),previous:prior ? totals(before):{}} : null;
+  renderTable('customerStructure',structure,[{key:'label',label:'受众',value:r=>r.label},column('gmv','GMV'),column('share','GMV占比'),column('roas','ROAS'),column('cpa','CPA'),column('aov','AOV')],Infinity,options(structureSum));
+  renderDonutChart('customerDonut',structure,'gmv','GMV 占比',{labelKey:'label'});
+  const daily=[];
+  for(const date of [...new Set(rows.map(r=>r.date_start))].sort()) for(const r of api.aggregate(rows.filter(r=>r.date_start===date))) daily.push({date_start:date,series:r.label,value:r.purchase_value});
+  renderCategoryLineChart('customerTrend',daily,'series','value',{limit:3,missingAsGap:true});
+  const tree=api.productRows(rows,before,usable,prior,DashboardProductTaxonomy.hierarchy);
+  tree.forEach((r,i)=>{r._parent=tree[i+1]?._depth>r._depth;});
+  const visible=[];const ancestors=[];
+  for(const row of tree){ancestors.length=row._depth; if(ancestors.every(n=>customerExpanded.has(n)))visible.push(row);ancestors[row._depth]=row.label;}
+  const metrics=customerMetricMode==='gmv' ? [['new_gmv','新客 GMV'],['new_share','新客占比'],['old_gmv','老客 GMV'],['old_share','老客占比'],['unknown_gmv','未知 GMV']] : [['new_roas','新客 ROAS'],['old_roas','老客 ROAS'],['new_aov','新客 AOV'],['old_aov','老客 AOV']];
+  renderTable('customerDetail',visible,[title,...metrics.map(([key,label])=>column(key,label))],Infinity,{...options(usable ? sum:null),preserveHierarchy:true});
+  document.getElementById('customerDetail').onclick=event=>{const button=event.target.closest('[data-customer-node]');if(!button)return;const key=button.dataset.customerNode;customerExpanded.has(key)?customerExpanded.delete(key):customerExpanded.add(key);renderCustomerModel(model);};
+  const siteOK=model.available && model.siteAllowed;
+  const sitePrior=model.previousAvailable && model.siteAllowed && model.sitePreviousAvailable;
+  const siteLabel=r=>customerDimension==='region' ? countryRegion(r.country) : r.standard_product_name || r.product_name || `未映射 · ${r.product_title || '未知商品'}`;
+  const siteNames=[...new Set([...model.site,...model.siteBefore].map(siteLabel))];
+  const site=siteNames.map(label=>({label,...api.siteSnapshot(model.site.filter(r=>siteLabel(r)===label),siteOK),previous:api.siteSnapshot(model.siteBefore.filter(r=>siteLabel(r)===label),sitePrior)})).sort((a,b)=>(b.total_gmv || 0)-(a.total_gmv || 0));
+  renderTable('customerSite',site,[customerDimension==='region' ? {key:'label',label:'地区',value:r=>r.label} : title,column('new_gmv','首购 Net Sales'),column('new_share','首购占比'),column('old_gmv','复购 Net Sales'),column('old_share','复购占比'),column('unknown_gmv','未知 Net Sales')],Infinity,options(siteOK ? {...api.siteSnapshot(model.site,true),previous:api.siteSnapshot(model.siteBefore,sitePrior)}:null));
+  document.getElementById('customerSiteNote').textContent=!model.siteAllowed ? '当前账户 / 投手筛选无法可靠关联全店，或双店日期覆盖不完整，站内数据不可用。' : !model.available ? '所选日期无完整站内数据覆盖。' : 'Shopify 原始 New / Returning，非跨店去重；产品仅使用明确映射，未知参与占比分母。';
+  document.getElementById('customerScope').textContent=`覆盖 ${model.payload?.start_date || '—'} 至 ${model.payload?.end_date || '—'} · 生成 ${model.payload?.generated_at || '—'} · 未映射广告 ${model.rows.filter(r=>r.mapping_unknown).length} 行；${(model.payload?.limitations||[]).join('；')}`;
+  document.getElementById('customerMappingAudit').textContent=model.rows.slice(0,20).map(r=>`${r.date_start} / ${r.ad_id} → ${r.standard_product_name || r.product_name || '未映射'} / ${r.operator || '未知投手'}`).join('\n') || '当前范围无广告映射样本。';
+  for(const [id,value] of [['customerProductTab','product'],['customerRegionTab','region']]){const el=document.getElementById(id);el.classList.toggle('active',customerDimension===value);el.setAttribute('aria-pressed',String(customerDimension===value));el.onclick=()=>{customerDimension=value;renderCustomerModel(model);};}
+  for(const [id,value] of [['customerGmvTab','gmv'],['customerEfficiencyTab','efficiency']]){const el=document.getElementById(id);el.classList.toggle('active',customerMetricMode===value);el.setAttribute('aria-pressed',String(customerMetricMode===value));el.onclick=()=>{customerMetricMode=value;renderCustomerModel(model);};}
+}
+DashboardRenderDispatcher.register("customer", measuredPageRenderer("customer", async () => {
+  await ensureCustomerData();
+  return buildCustomerModel();
+}, renderCustomerModel));
 DashboardRenderDispatcher.register("overview", measuredPageRenderer("overview", buildOverviewRenderModel, renderOverviewPage));
 DashboardRenderDispatcher.register("product", measuredPageRenderer("product", buildProductRenderModel, renderProductRoute));
 DashboardRenderDispatcher.register("country", measuredPageRenderer("country", buildCountryRenderModel, renderCountryRoute));
@@ -6281,7 +6379,7 @@ function renderSharedShell(page) {
   renderPeriodHint();
   const attributionOnly = isAttributionMode();
   ["insightSummary", "kpis", "comparison", "actionInsights"].forEach((id) => {
-    const compactPage = ["country", "creative"].includes(state.view) && (id === "comparison" || id === "actionInsights");
+    const compactPage = state.view === "customer" || (["country", "creative"].includes(state.view) && (id === "comparison" || id === "actionInsights"));
     document.getElementById(id).classList.toggle("hidden", attributionOnly || compactPage);
   });
 }

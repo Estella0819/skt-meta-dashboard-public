@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SKINTIFIC 独立站投放看板</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="./src/styles.css?v=20260903-product-mapping-v1" />
+    <link rel="stylesheet" href="./src/styles.css?v=20261104-customer-v1" />
   </head>
   <body class="cockpit-shell-marker">
     <header class="topbar">
@@ -24,6 +24,7 @@
           <button class="tab" data-view="creative">素材</button>
           <button class="tab" data-view="landing">落地页</button>
           <button class="tab" data-view="allChannels">全渠道</button>
+          <button class="tab" data-view="customer">新老客</button>
         </nav>
       </div>
 
@@ -185,6 +186,20 @@
         </section>
       </section>
 
+      <section class="view-shell hidden customer-page" id="customerView" data-page-order="conclusion,kpis,trend,structure,detail">
+        <p id="customerConclusion" data-module="conclusion" role="status"></p>
+        <div id="customerKpis" data-module="kpis"></div>
+        <section data-module="trend"><h3>Meta 新老客 GMV 趋势</h3><div id="customerTrend"></div></section>
+        <article class="panel" data-module="structure"><header><h3>Meta 受众结构</h3></header><div class="customer-structure-layout"><div id="customerDonut" class="chart"></div><div class="table-wrap"><table id="customerStructure"></table></div></div></article>
+        <section data-module="detail">
+          <div class="segmented-control"><button id="customerProductTab" type="button">产品</button><button id="customerRegionTab" type="button">地区</button></div>
+          <p id="customerScope"></p>
+          <details class="customer-method"><summary>口径与映射</summary><p>Meta 新客 = prospecting + engaged；老客 = existing。未知保留并计入全受众 GMV 分母。花费、GMV、购买次数先加总，再计算 ROAS、CPA、AOV。对比无覆盖显示 —，零基期不计算增幅。广告映射优先同日 ad_id，其次使用字段一致的唯一映射；不复制国家行指标。Shopify 产品只使用 shopify_product_mapping 的精确标题映射，未映射商品保留原名。没有身份匹配或地区分摊；账户与投手不用于过滤全店销售。订单跨商品不可加总。</p></details>
+          <details class="customer-method"><summary>广告映射样本（前 20 行）</summary><pre id="customerMappingAudit"></pre></details>
+          <article class="panel"><header><h3>Meta 产品新老客</h3><div class="segmented-control"><button id="customerGmvTab" type="button">GMV 贡献</button><button id="customerEfficiencyTab" type="button">效率</button></div></header><div class="table-wrap"><table id="customerDetail"></table></div></article>
+          <article class="panel"><header><h3>Shopify 首购 / 复购 Net Sales</h3></header><p id="customerSiteNote"></p><div class="table-wrap"><table id="customerSite"></table></div></article>
+        </section>
+      </section>
       <section class="view-shell hidden product-page" id="productView" data-page-order="conclusion,kpis,trend,structure,detail">
         <div id="productSegmentControl" class="segmented-control page-segment-control" aria-label="产品分析维度">
           <button type="button" data-segment="overall" aria-pressed="true">整体表现</button>
@@ -617,7 +632,7 @@
     <script src="./src/components/page-shell.js?v=20260722-product-source-split"></script>
     <script src="./src/dashboard-ui.js?v=20260720-cockpit"></script>
     <script src="./src/dashboard-state.js?v=20260825-creative-intelligence-v2"></script>
-    <script src="./src/page-config.js?v=20260825-creative-intelligence-v2"></script>
+    <script src="./src/page-config.js?v=20261104-customer-v1"></script>
     <script src="./src/render-dispatcher.js?v=20260723-render-dispatcher"></script>
     <script src="./src/pages/country-page.js?v=20261015-region-trend-v1"></script>
     <script src="./src/pages/creative-page.js?v=20260730-aditya-cocreate"></script>
@@ -627,6 +642,7 @@
     <script src="./src/pages/product-page.js?v=20260921-product-hierarchy-v2"></script>
     <script src="./src/pages/channel-page.js?v=20260730-aditya-cocreate"></script>
     <script src="./src/product-filter-options.js?v=20260921-product-hierarchy-v2"></script>
-    <script src="./src/app.js?v=20261015-region-trend-v1"></script>
+    <script src="./src/pages/customer-page.js"></script>
+    <script src="./src/app.js?v=20261104-customer-v1"></script>
   </body>
 </html>

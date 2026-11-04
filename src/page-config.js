@@ -18,6 +18,13 @@
     "adName",
   ];
   const pages = {
+    customer: {
+      title: "新老客",
+      subtitle: "Meta 受众与 Shopify 首购 / 复购（独立口径）",
+      filters: ["account", "country", "product", "operator"],
+      dataFilters: ["account", "country", "product", "operator"],
+      segments: [], modules,
+    },
     overview: {
       title: "总览",
       subtitle: "投放规模、效率和趋势",
