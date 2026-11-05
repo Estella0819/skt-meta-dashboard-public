@@ -6269,7 +6269,12 @@ function ensureCustomerData() {
     const script=document.createElement('script');
     const release=new URL(document.querySelector('script[src*="src/app.js"]').src).searchParams.get('v');
     script.src=`./data/dashboard-customer-data.js?v=${encodeURIComponent(release || 'customer-v1')}`;
-    script.onload=()=>window.DASHBOARD_CUSTOMER_DATA ? resolve() : reject(new Error('新老客数据未注册'));
+    script.onload=()=>{
+      const payload=window.DASHBOARD_CUSTOMER_DATA;
+      if(!payload){reject(new Error('新老客数据未注册'));return;}
+      for(const [key,schema] of Object.entries(payload._schemas || {})) payload[key]=unpackRows(payload[key],schema);
+      resolve();
+    };
     script.onerror=()=>reject(new Error('新老客数据加载失败，请稍后重试'));
     document.head.append(script);
   }).catch(error=>{
@@ -6288,14 +6293,16 @@ function buildCustomerModel() {
   const available = api.covered(payload,state.startDate,state.endDate);
   const previousAvailable = api.covered(payload,previous.start,previous.end);
   const inRange = (rows,start,end) => rows.filter(r=>r.date_start>=start && r.date_start<=end);
-  const all = api.selectAds(payload?.ads,data.ads,state,r=>passesCommonFilters(r,{ignoreCountry:true}) && matchesAdvertisingProduct(r));
+  const customerMetadata = [...(data.ads || []),...(payload?.ad_metadata || []).map(enrichProductFields)];
+  const windowAds = (payload?.ads || []).filter(r=>(r.date_start>=state.startDate && r.date_start<=state.endDate) || (r.date_start>=previous.start && r.date_start<=previous.end));
+  const all = api.selectAds(windowAds,customerMetadata,state,r=>passesCommonFilters(r,{ignoreCountry:true}) && matchesAdvertisingProduct(r));
   const rows = available ? inRange(all,state.startDate,state.endDate) : [];
   const before = previousAvailable ? inRange(all,previous.start,previous.end) : [];
   const storeCoverage = ['主店','美国店'].map(store=>{
     const dates=(payload?.site || []).filter(r=>r.store===store).map(r=>r.date_start).sort();
     return {start_date:dates[0],end_date:dates.at(-1)};
   });
-  const siteCovered = (start,end)=>storeCoverage.every(c=>api.covered(c,start,end));
+  const siteCovered = (start,end)=>storeCoverage.every((c,i)=>i===1 && end<'2026-06-05' ? true : api.covered(c,i===1 && start<'2026-06-05'?'2026-06-05':start,end));
   const siteAllowed = !state.account.length && !state.operator.length && siteCovered(state.startDate,state.endDate);
   // Only the explicit Shopify mapping is shared with advertising product filters.
   const reviewedSiteMap = new Map((payload?.site_product_mapping || []).map(m=>[m.product_title,m.product_name]));
@@ -6334,7 +6341,9 @@ function renderCustomerModel(model) {
   renderTable('customerStructure',structure,[{key:'label',label:'受众',value:r=>r.label},column('gmv','GMV'),column('share','GMV占比'),column('roas','ROAS'),column('cpa','CPA'),column('aov','AOV')],Infinity,options(structureSum));
   renderDonutChart('customerDonut',structure,'gmv','GMV 占比',{labelKey:'label'});
   const daily=[];
-  for(const date of [...new Set(rows.map(r=>r.date_start))].sort()) for(const r of api.aggregate(rows.filter(r=>r.date_start===date))) daily.push({date_start:date,series:r.label,value:r.purchase_value});
+  const customerDays=new Map();
+  for(const row of rows){if(!customerDays.has(row.date_start))customerDays.set(row.date_start,[]);customerDays.get(row.date_start).push(row);}
+  for(const date of [...customerDays.keys()].sort()) for(const r of api.aggregate(customerDays.get(date))) daily.push({date_start:date,series:r.label,value:r.purchase_value});
   renderCategoryLineChart('customerTrend',daily,'series','value',{limit:3,missingAsGap:true});
   const tree=api.productRows(rows,before,usable,prior,DashboardProductTaxonomy.hierarchy);
   tree.forEach((r,i)=>{r._parent=tree[i+1]?._depth>r._depth;});
