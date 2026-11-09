@@ -4017,6 +4017,13 @@ function renderGoogleAttributionDetail(model) {
 
 function renderActualRoi(rows) {
   const el = document.getElementById("actualRoiPanel");
+  const googleAccountsByDay = new Map();
+  (data.google_ad_type_daily || []).forEach((row) => {
+    if (!googleAccountsByDay.has(row.date_start)) googleAccountsByDay.set(row.date_start, new Set());
+    googleAccountsByDay.get(row.date_start).add(String(row.account_id));
+  });
+  const googleComplete = (date) => ["6339590811", "8695841846"].every((id) => googleAccountsByDay.get(date)?.has(id));
+  rows = rows.map((row) => googleComplete(row.date_start) ? row : { ...row, google_spend: null });
   const days = Math.round((Date.parse(state.endDate) - Date.parse(state.startDate)) / 86400000) + 1;
   const sales = attributionRowsForWindow(data.shopify_daily || []);
   const sumComplete = (items, key) => {
@@ -4027,7 +4034,7 @@ function renderActualRoi(rows) {
   const meta = sumComplete(rows, "meta_spend");
   const google = sumComplete(rows, "google_spend");
   const result = DashboardMetrics.calculateActualRoi(net, meta, google, days);
-  const allAds = new Map(normalizedAttributionDailyRows().map((r) => [r.date_start, r]));
+  const allAds = new Map(normalizedAttributionDailyRows().map((r) => [r.date_start, googleComplete(r.date_start) ? r : { ...r, google_spend: null }]));
   const allSales = new Map((data.shopify_daily || []).map((r) => [r.date_start, r.net_sales]));
   const daily = (date) => {
     const ad = allAds.get(date) || {};
@@ -4054,7 +4061,7 @@ function renderActualRoi(rows) {
   try { draft = JSON.parse(localStorage.getItem(draftKey) || "{}"); } catch (_) { /* Storage may be unavailable. */ }
   const limited = state.account.length || state.country.length || state.product.length || state.operator?.length;
   el.innerHTML = `<h3>实际 ROI 与预算控制</h3>
-    <p>双店 Net Sales ÷（Meta＋Google＋插件费），不含 Snapchat。${days} 天；插件 $${(1419 / 6.663).toFixed(2)}/天，按未舍入金额计算。${limited ? "本模块为全站财务口径，仅跟随时间，不按广告维度拆分。" : "全站财务口径，仅跟随时间。"}</p>
+    <p>双店 Net Sales ÷（Meta＋Google＋插件费），不含 Snapchat。${days} 天；插件 $${(1419 / 6.663).toFixed(2)}/天，按未舍入金额计算。${limited ? "本模块为全站财务口径，仅跟随时间，不按广告维度拆分。" : "全站财务口径，仅跟随时间。"}Google 两个账户须同日齐全才计算 ROI；当前月份有花费的 Meta 账户、Google 及双店均为北京时间 UTC+8 日界线。</p>
     <div class="attribution-kpi-grid">
       <article><span>实际 ROI</span><strong>${result.roi === null ? "数据未齐" : ratio(result.roi)}</strong><small>不是平台归因 ROAS</small></article>
       <article><span>Shopify Net Sales</span><strong>${money(net)}</strong><small>双店官方净销售，已扣退款</small></article>
@@ -4067,21 +4074,22 @@ function renderActualRoi(rows) {
     <h3 style="margin-top:20px">${monthStart.slice(0, 7)} 剩余目标测算</h3>
     <p>已完成：${completedEnd ? `${monthStart} 至 ${completedEnd}` : "暂无连续完整数据"}；累计净销售 ${money(actualSales)}，累计总成本 ${money(actualCost)}。剩余 ${remainingDays} 天。仅采用月初起连续完整且已完结的日期，缺失/未完结日期保留为待完成。</p>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:16px 0">
-      <label>整月净销售目标 USD <input id="roiForecast" type="number" min="0" step="100" style="width:150px;max-width:100%"></label>
+      <label>整月净销售目标 人民币 <input id="roiForecast" type="number" min="0" step="10000" style="width:150px;max-width:100%"></label>
       <label>整月目标实际 ROI <input id="roiTarget" type="number" min="0.01" step="0.1" value="2" style="width:90px"></label>
       <output id="roiBudget" aria-live="polite"></output>
-    </div><small>剩余实际 ROI＝（整月销售目标－已完成净销售）÷（整月销售目标÷整月目标 ROI－已完成总成本）。剩余广告预算需再扣除剩余天数的固定插件费；是 Meta＋Google 合计预算，不等于平台 ROAS。</small>`;
+    </div><small>销售目标按 6.663 换算为美元，其他金额均为美元。剩余实际 ROI＝（整月销售目标－已完成净销售）÷（整月销售目标÷整月目标 ROI－已完成总成本）。剩余广告预算需再扣除剩余天数的固定插件费；是 Meta＋Google 合计预算，不等于平台 ROAS。</small>`;
   const dailySummary = { netSales: net, meta, google, pluginCost: result.pluginCost, totalCost: result.totalCost, roi: result.roi };
   renderTable("actualRoiDailyTable", dailyRows, [
     { key: "date_start", label: "日期", sticky: true, format: (date) => `${date}${date === localDateIso() ? "（未完结）" : ""}` },
     ...[["netSales", "Net Sales"], ["meta", "Meta"], ["google", "Google"], ["pluginCost", "插件费"], ["totalCost", "总成本"], ["roi", "实际 ROI"]].map(([key, label]) => ({ key, label, num: true, format: key === "roi" ? ratio : money, summaryFormat: () => (key === "roi" ? ratio : money)(dailySummary[key]) })),
   ], dailyRows.length, { summaryData: Object.fromEntries(Object.entries(dailySummary).map(([key, value]) => [key, value ?? "-"])), insight: false });
-  el.querySelector("#roiForecast").value = draft.sales || "";
+  el.querySelector("#roiForecast").value = draft.currency === "CNY" ? draft.sales : "5500000";
   el.querySelector("#roiTarget").value = draft.roi || "2";
   const calculate = () => {
     const inputs = ["roiForecast", "roiTarget"].map((id) => el.querySelector(`#${id}`));
-    const [forecast, target] = inputs.map((input) => Number(input.value));
-    try { localStorage.setItem(draftKey, JSON.stringify({ sales: inputs[0].value, roi: inputs[1].value })); } catch (_) { /* Optional persistence. */ }
+    const forecast = Number(inputs[0].value) / 6.663;
+    const target = Number(inputs[1].value);
+    try { localStorage.setItem(draftKey, JSON.stringify({ sales: inputs[0].value, roi: inputs[1].value, currency: "CNY" })); } catch (_) { /* Optional persistence. */ }
     const remaining = DashboardMetrics.calculateRemainingRoi(forecast, target, actualSales, actualCost, remainingDays);
     el.querySelector("#roiBudget").textContent = !completed.length ? "月初数据未齐，暂不能测算" : !remainingDays ? "该月已完结，无剩余日期" : inputs.some((input) => input.value === "") || target <= 0 || forecast <= 0 ? "请填写整月目标" : remaining.remainingSales === 0 ? "销售目标已达成，请结合预算控制后续花费" : remaining.remainingCost <= 0 || remaining.remainingAdBudget < 0 ? "预算不足：已用成本或剩余插件费超过目标允许成本" : `剩余销售 ${money(remaining.remainingSales)} · 剩余总成本上限 ${money(remaining.remainingCost)} · 剩余实际 ROI 至少 ${ratio(remaining.requiredRoi)} · 剩余广告预算 ${money(remaining.remainingAdBudget)}`;
   };
