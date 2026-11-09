@@ -4015,8 +4015,48 @@ function renderGoogleAttributionDetail(model) {
   renderGoogleMarkets(model.markets);
 }
 
+function renderActualRoi(rows) {
+  const el = document.getElementById("actualRoiPanel");
+  const days = Math.round((Date.parse(state.endDate) - Date.parse(state.startDate)) / 86400000) + 1;
+  const sales = attributionRowsForWindow(data.shopify_daily || []);
+  const sumComplete = (items, key) => {
+    const dates = new Set(items.filter((r) => r[key] !== null && r[key] !== undefined).map((r) => r.date_start));
+    return dates.size === days ? items.reduce((n, r) => n + Number(r[key] || 0), 0) : null;
+  };
+  const net = sumComplete(sales, "net_sales");
+  const meta = sumComplete(rows, "meta_spend");
+  const google = sumComplete(rows, "google_spend");
+  const result = DashboardMetrics.calculateActualRoi(net, meta, google, days);
+  const limited = state.account.length || state.country.length || state.product.length || state.operator?.length;
+  el.innerHTML = `<h3>实际 ROI 与预算控制</h3>
+    <p>双店 Net Sales ÷（Meta＋Google＋插件费），不含 Snapchat。${days} 天；插件 $${(1419 / 6.663).toFixed(2)}/天，按未舍入金额计算。${limited ? "本模块为全站财务口径，仅跟随时间，不按广告维度拆分。" : "全站财务口径，仅跟随时间。"}</p>
+    <div class="attribution-kpi-grid">
+      <article><span>实际 ROI</span><strong>${result.roi === null ? "数据未齐" : ratio(result.roi)}</strong><small>不是平台归因 ROAS</small></article>
+      <article><span>Shopify Net Sales</span><strong>${money(net)}</strong><small>双店官方净销售，已扣退款</small></article>
+      <article><span>Meta / Google 花费</span><strong>${money(meta)} / ${money(google)}</strong><small>缺失日期不按零花费计</small></article>
+      <article><span>插件费 / 总成本</span><strong>${money(result.pluginCost)} / ${money(result.totalCost)}</strong><small>1419 人民币/天 · 汇率 6.663</small></article>
+    </div>
+    ${result.roi === null ? '<p>所选周期存在销售额或广告花费缺失，请结合下方数据源截止日期，选择完整周期后计算。</p>' : ""}
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:16px 0">
+      <label>预估净销售额 USD <input id="roiForecast" type="number" min="0" step="100" value="${net === null ? "" : net.toFixed(2)}" style="width:150px;max-width:100%"></label>
+      <label>目标实际 ROI <input id="roiTarget" type="number" min="0.01" step="0.1" value="2" style="width:90px"></label>
+      <label>预计 Google 花费 USD <input id="roiGoogle" type="number" min="0" step="100" value="${google === null ? "" : google.toFixed(2)}" style="width:150px;max-width:100%"></label>
+      <output id="roiBudget" aria-live="polite"></output>
+    </div><small>Meta 预算上限＝预估净销售额÷目标实际 ROI－预计 Google 花费－周期插件费。仅为预算测算，不等于 Meta ROAS 目标。</small>`;
+  const calculate = () => {
+    const inputs = ["roiForecast", "roiTarget", "roiGoogle"].map((id) => el.querySelector(`#${id}`));
+    const [forecast, target, googleBudget] = inputs.map((input) => Number(input.value));
+    const budget = forecast / target - googleBudget - result.pluginCost;
+    el.querySelector("#roiBudget").textContent = inputs.every((input) => input.value !== "") && target > 0 && forecast >= 0 && googleBudget >= 0
+      ? (budget < 0 ? "目标下无可用 Meta 预算" : `Meta 预算上限 ${money(budget)}`) : "请填写完整测算参数";
+  };
+  el.querySelectorAll("input").forEach((input) => input.addEventListener("input", calculate));
+  calculate();
+}
+
 function renderAttribution() {
   const model = arguments[0];
+  renderActualRoi(model.dailyRows);
   renderAttributionSourceHealth(model.sourceHealthRows);
   renderAttributionKpis(model.kpis);
   renderAttributionTrend(model.trend);

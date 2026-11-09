@@ -1,4 +1,10 @@
 const DashboardMetrics = (() => {
+  const calculateActualRoi = (netSales, metaSpend, googleSpend, days) => {
+    const pluginCost = 1419 / 6.663 * days;
+    const valid = [netSales, metaSpend, googleSpend].every((v) => v !== null && v !== undefined && Number.isFinite(Number(v))) && days > 0;
+    const totalCost = valid ? Number(metaSpend) + Number(googleSpend) + pluginCost : null;
+    return { pluginCost, totalCost, roi: totalCost > 0 ? Number(netSales) / totalCost : null };
+  };
   const numeric = (value) => Number(value || 0);
   const metaClickMetric = (row, key) => (
     Object.prototype.hasOwnProperty.call(row, key)
@@ -152,6 +158,7 @@ const DashboardMetrics = (() => {
     calculateAov,
     calculateAovFromRows,
     summarizeRows,
+    calculateActualRoi,
     groupRows,
     calculateChannelEfficiency,
     calculateAttributionDiagnostics,
