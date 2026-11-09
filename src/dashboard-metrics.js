@@ -1,4 +1,13 @@
 const DashboardMetrics = (() => {
+  const calculateRemainingRoi = (targetSales, targetRoi, actualSales, actualCost, remainingDays) => {
+    const remainingSales = Math.max(0, targetSales - actualSales);
+    const remainingCost = targetSales / targetRoi - actualCost;
+    return {
+      remainingSales, remainingCost,
+      requiredRoi: remainingCost > 0 && remainingSales > 0 ? remainingSales / remainingCost : null,
+      remainingAdBudget: remainingCost - 1419 / 6.663 * remainingDays,
+    };
+  };
   const calculateActualRoi = (netSales, metaSpend, googleSpend, days) => {
     const pluginCost = 1419 / 6.663 * days;
     const valid = [netSales, metaSpend, googleSpend].every((v) => v !== null && v !== undefined && Number.isFinite(Number(v))) && days > 0;
@@ -159,6 +168,7 @@ const DashboardMetrics = (() => {
     calculateAovFromRows,
     summarizeRows,
     calculateActualRoi,
+    calculateRemainingRoi,
     groupRows,
     calculateChannelEfficiency,
     calculateAttributionDiagnostics,
