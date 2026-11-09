@@ -498,8 +498,7 @@ function daysBetween(start, end) {
 }
 
 function localDateIso(now = new Date()) {
-  const offset = now.getTimezoneOffset() * 60000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+  return new Date(now.getTime() + 8 * 3600000).toISOString().slice(0, 10);
 }
 
 function isCurrentDayPartial() {
@@ -4064,7 +4063,7 @@ function renderActualRoi(rows) {
     <p>双店 Net Sales ÷（Meta＋Google＋插件费），不含 Snapchat。${days} 天；插件 $${(1419 / 6.663).toFixed(2)}/天，按未舍入金额计算。${limited ? "本模块为全站财务口径，仅跟随时间，不按广告维度拆分。" : "全站财务口径，仅跟随时间。"}Google 两个账户须同日齐全才计算 ROI；当前月份有花费的 Meta 账户、Google 及双店均为北京时间 UTC+8 日界线。</p>
     <div class="attribution-kpi-grid">
       <article><span>实际 ROI</span><strong>${result.roi === null ? "数据未齐" : ratio(result.roi)}</strong><small>不是平台归因 ROAS</small></article>
-      <article><span>Shopify Net Sales</span><strong>${money(net)}</strong><small>双店官方净销售，已扣退款</small></article>
+      <article><span>Shopify Net Sales</span><strong>${money(net)}</strong><small>双店净销售，已扣退款、排除运费险</small></article>
       <article><span>Meta / Google 花费</span><strong>${money(meta)} / ${money(google)}</strong><small>缺失日期不按零花费计</small></article>
       <article><span>插件费 / 总成本</span><strong>${money(result.pluginCost)} / ${money(result.totalCost)}</strong><small>1419 人民币/天 · 汇率 6.663</small></article>
     </div>
