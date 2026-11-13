@@ -4098,6 +4098,22 @@ function renderActualRoi(rows) {
 
 function renderAttribution() {
   const model = arguments[0];
+  let notice = document.getElementById("googleCoverageNotice");
+  if (!notice) {
+    notice = document.createElement("p");
+    notice.id = "googleCoverageNotice";
+    notice.setAttribute("role", "status");
+    notice.style.cssText = "padding:10px 14px;border-left:3px solid #b27b25;background:#fff8e8;font-size:13px";
+    document.getElementById("attributionKpis").before(notice);
+  }
+  const googleDates = new Map();
+  (data.google_ad_type_daily || []).forEach((row) => {
+    if (!googleDates.has(row.date_start)) googleDates.set(row.date_start, new Set());
+    googleDates.get(row.date_start).add(String(row.account_id));
+  });
+  const missingGoogle = model.dailyRows.filter((row) => !["6339590811", "8695841846"].every((id) => googleDates.get(row.date_start)?.has(id))).map((row) => row.date_start);
+  notice.hidden = !missingGoogle.length;
+  notice.textContent = `Google 数据不完整：${missingGoogle.join("、")} 未覆盖两个账户。已有金额仅为可用部分，不按完整花费解读；缺失不填零，相关实际 ROI 不计算。当日数据尚未完结。`;
   renderActualRoi(model.dailyRows);
   renderAttributionSourceHealth(model.sourceHealthRows);
   renderAttributionKpis(model.kpis);
