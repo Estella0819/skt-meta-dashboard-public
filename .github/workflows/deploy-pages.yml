@@ -1,37 +1,49 @@
 name: Deploy dashboard to GitHub Pages
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
-
 concurrency:
   group: pages
   cancel-in-progress: false
-
 jobs:
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    env:
+      PAGES_ARTIFACT: pages-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Configure Pages
         uses: actions/configure-pages@v5
-
       - name: Upload dashboard
         uses: actions/upload-pages-artifact@v4
         with:
           path: .
-
+          name: ${{ env.PAGES_ARTIFACT }}
+      - name: Confirm artifact is visible
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for attempt in {1..12}; do
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" --jq "[.artifacts[] | select(.name == \"$PAGES_ARTIFACT\" and .expired == false)] | length")
+            if [ "$count" = "1" ]; then exit 0; fi
+            if [ "$count" -gt "1" ]; then echo 'Duplicate artifact'; exit 1; fi
+            sleep 5
+          done
+          echo 'Artifact visibility timeout'
+          exit 1
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT }}
