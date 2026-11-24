@@ -15,7 +15,7 @@ jobs:
   deploy:
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     runs-on: ubuntu-latest
     env:
       PAGES_ARTIFACT: pages-${{ github.run_id }}-${{ github.run_attempt }}
@@ -44,6 +44,16 @@ jobs:
           exit 1
       - name: Deploy
         id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT }}
+      - name: Wait before deployment retry
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+      - name: Retry deployment without uploading again
+        id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
         with:
           artifact_name: ${{ env.PAGES_ARTIFACT }}
